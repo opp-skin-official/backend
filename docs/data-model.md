@@ -1,4 +1,4 @@
-# 데이터 모델 초안 (v0.5)
+# 데이터 모델 초안 (v0.6)
 
 > 근거 (2026-11-25 기준)
 > - Figma "제대로 IA": 핵심 유저플로우 v1.3, 02 핵심 유저플로우(조건·분기·복귀), NEW IA, IA 정보구조도, 제대로의 핵심 구조, 실제 피부 상담 User Flow, 경과 기록 기준, 2-3(3D)
@@ -11,7 +11,8 @@
 > - 제품은 **자체 제품 DB**(PX 제품).
 > - 사진 분석·리포트·3D는 **Model A**, 루틴·챗봇은 **Model B** 자체 API로 받아 온다(4.9).
 > - 피부 질환·복용약(민감정보)과 구독·멤버십은 **MVP에 포함**한다. 단 **결제 대행사 연동은 추후 개발**(데이터 구조만 둔다).
-> - 룰 DB·근거 자료는 **스프레드시트**로 작성해 일괄 등록한다.
+> - 규칙은 **성분 규칙·조합 규칙**(CSV 시트)만 둔다. 상황별 행동 규칙(`care_rules`)은 두지 않고, 상황별 행동·근거는 Model A 결과를 쓴다.
+> - 규칙·제품 데이터는 **스프레드시트**로 작성해 일괄 등록한다.
 > - 상담 비서 스타일은 **구분하지 않는다**(선택 화면 없음).
 >
 > 확정 전 초안이다. 6절 "결정 필요"를 정한 뒤 Flyway 마이그레이션으로 옮긴다.
@@ -87,8 +88,7 @@ erDiagram
     care_reports }o--o| care_reports : revises
     care_reports ||--o{ report_items : lists
     care_reports }o--o{ products : recommends
-    report_items }o--o{ care_rules : based_on
-    care_rules }o--o{ evidence_sources : cites
+    report_items }o--o{ evidence_sources : cites
 
     users ||--o{ face_captures : captures
     face_captures ||--o| photo_analyses : analyzed_by
@@ -223,12 +223,11 @@ erDiagram
 ### 4.5 관리 리포트·근거
 - **care_reports** (C-01 솔루션 = R-01): `id`, `conversation_id`(unique), `user_id`, `revises_report_id`(nullable, 수정 리포트), `change_reason`(nullable), `today_summary`, `context`, `target_date`(nullable → D-day 계획, 없으면 일반 계획), `plan`(jsonb: 날짜별 계획), `uncertainty_notice`(text), `created_at` — 생성 후 수정하지 않는다(당시 결과 보존).
 - **report_items**: `id`, `report_id`, `kind`(DO / DONT / AFTERCARE / CAUTION / MEDICAL_WHEN), `text`, `sort_order`
-- **report_item_rules**: `report_item_id`, `rule_id`
 - **report_products**: `report_id`, `product_id`, `reason`, `sort_order`
-- **care_rules** (상황별 행동 규칙. 출처: IA "제대로의 핵심 구조" 프레임의 룰 DB 항목 메모 — 문제 유형·상태·개인 특성·환경·제약·위험 신호·권장/회피 행동·재확인 시점·의료기관 안내 조건·근거 출처·전문적 판단 여부. 실제 데이터는 아직 없다): `id`, `sheet_key`(unique, 스프레드시트 행 ID), `problem_type`, `condition`(jsonb: 상태·개인 특성(`skin_type_code` 포함)·환경·제약), `red_flags`(jsonb), `recommended_actions`(text[]), `avoid_actions`(text[]), `recheck_after`, `referral_condition`, `requires_professional`(bool), `active`, `version`
-- **evidence_sources**: `id`, `sheet_key`(unique), `title`, `source_type`(PAPER / GUIDELINE / STAT), `url`, `summary`, `published_at`
-- **care_rule_evidences**: `rule_id`, `evidence_id`
-- **sheet_imports**: `id`, `target`(CARE_RULES / EVIDENCE_SOURCES / PRODUCTS / SKIN_TYPES), `file_name`, `row_count`, `inserted`, `updated`, `deactivated`, `errors`(jsonb), `imported_by`, `imported_at`
+- **evidence_sources**: `id`, `external_id`(unique, Model A 근거 검색 결과의 ID), `title`, `source_type`(PAPER / GUIDELINE / STAT), `url`, `summary`, `published_at` — Model A가 리포트와 함께 돌려준 근거를 저장해 "근거 자료 상세"에 보여 준다. 응답 형식을 받으면 필드를 맞춘다.
+- **report_item_evidences**: `report_item_id`, `evidence_id`
+- 해야 할 행동·피할 행동·의료진 안내 같은 상황별 내용은 Model A의 리포트 결과를 그대로 저장한다(`report_items`). 우리 쪽에 상황별 규칙 테이블은 두지 않는다.
+- **sheet_imports**: `id`, `target`(INGREDIENT_RULES / COMBO_RULES / INGREDIENT_GROUPS / PRODUCTS / SKIN_TYPES), `file_name`, `row_count`, `inserted`, `updated`, `deactivated`, `errors`(jsonb), `imported_by`, `imported_at`
 - 등록 방식: 스프레드시트(xlsx 또는 csv)를 올리면 `sheet_key` 기준으로 추가·수정하고, 시트에서 빠진 행은 `active = false`로 바꾼다(삭제하지 않음: 과거 리포트가 참조하기 때문). 검증 오류가 하나라도 있으면 전체를 반영하지 않는다.
 
 **성분 규칙·조합 규칙** (`docs/rules/*.csv`)
@@ -278,7 +277,7 @@ erDiagram
 - `GET /health` 확인 결과(2026-11-25): 두 모델 모두 정상. 요청 하나 처리에 **최대 300초**, 컨테이너당 동시 1건, 최대 5개 → 백엔드는 모델 호출을 **비동기 작업**으로 돌리고 프론트는 상태를 조회한다. 첫 요청은 콜드 스타트(약 5~7초)가 더해진다.
 - **ai_jobs**: `id`, `user_id`, `model`(A / B), `endpoint`, `subject_type`, `subject_id`(대화·촬영·계획 등), `status`(QUEUED / RUNNING / DONE / FAILED), `request`(jsonb, 민감정보 제외), `response`(jsonb), `model_version`, `error`, `created_at`, `finished_at`
 - 공개된 OpenAPI 명세에는 요청·응답 본문이 `object`로만 되어 있어 **필드 형식은 아직 모른다**. 형식을 받으면 `care_reports`, `photo_analyses`, `face_captures`, `routine_items` 필드를 응답에 맞춘다.
-- Model A에 근거 검색기(`evidence_retriever`)가 들어 있다. 4.5의 룰 DB·근거 자료와 역할이 겹치는지 정해야 한다(6절).
+- Model A에 근거 검색기(`evidence_retriever`)가 들어 있다. 상황별 행동과 근거는 Model A 결과를 쓰고, 우리 쪽은 저장·표시만 한다.
 
 ## 5. API 초안
 
@@ -315,7 +314,7 @@ erDiagram
 | GET | `/api/subscription-plans`, `/api/subscription` | 2-4-1, 2-4-1-1 |
 | POST | `/api/subscription` / DELETE `/api/subscription` | 구독 시작·해지 |
 | POST | `/api/payments/webhook` | 결제 대행사 알림 수신 |
-| POST | `/api/admin/sheet-imports` (파일 업로드, `target`) | 룰·근거·제품·유형 일괄 등록 |
+| POST | `/api/admin/sheet-imports` (파일 업로드, `target`) | 성분·조합 규칙, 성분 그룹, 제품, 유형 일괄 등록 |
 
 ## 6. 결정 필요
 
@@ -323,12 +322,12 @@ erDiagram
 - 32유형 번호 규칙 (4.2 매핑표)
 - 설문 문항·채점 규칙 (Notion "군 장병용 피부 유형 진단 설문")
 - 결제 대행사 연동은 추후 개발
+- 상황별 행동 규칙(`care_rules`)은 두지 않음: 성분·조합 규칙 + Model A 결과로 간다
 
 **남은 것**
 1. **자체 AI API 요청·응답 형식** (아직): `/analyze`, `/routine`, `/chat` 본문 필드
-2. **상황별 행동 규칙(`care_rules`)을 둘지:** IA 메모에서 나온 구조이고 실제 데이터는 없다. 성분·조합 규칙(CSV)과 Model A의 근거 검색으로 충분하면 빼고, 필요하면 시트를 따로 만든다.
-3. **성분 그룹 정의:** "에센셜 오일류", "고농도 AHA·BHA", "자외선 차단제" 같은 그룹을 실제 INCI 목록이나 제품 분류로 어떻게 판정할지
-4. **설문 이미지 20장** (이미지 문항 5개 × 4장)
-5. **민감정보 동의 범위·문구:** 흡연, 가족력, 피부 사진, 피부 질환·복용약
-6. **요금제 내용** (IA·UI에 정의 없음)
-7. **스프레드시트 양식, 관리자 권한** (나중에)
+2. **성분 그룹 정의:** "에센셜 오일류", "고농도 AHA·BHA", "자외선 차단제" 같은 그룹을 실제 INCI 목록이나 제품 분류로 어떻게 판정할지
+3. **설문 이미지 20장** (이미지 문항 5개 × 4장)
+4. **민감정보 동의 범위·문구:** 흡연, 가족력, 피부 사진, 피부 질환·복용약
+5. **요금제 내용** (IA·UI에 정의 없음)
+6. **스프레드시트 양식, 관리자 권한** (나중에)
