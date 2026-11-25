@@ -1,14 +1,16 @@
-# 데이터 모델 초안 (v0.4)
+# 데이터 모델 초안 (v0.5)
 
 > 근거 (2026-11-25 기준)
 > - Figma "제대로 IA": 핵심 유저플로우 v1.3, 02 핵심 유저플로우(조건·분기·복귀), NEW IA, IA 정보구조도, 제대로의 핵심 구조, 실제 피부 상담 User Flow, 경과 기록 기준, 2-3(3D)
 > - Figma "제대로 UI": 화면 약 60개
+> - Notion "피부 타입 구분 v2", "군 장병용 피부 유형 진단 설문"(OPP 코드 테스트 설문)
+> - 성분 규칙 [`docs/rules/opp_ingredient_rules.csv`](rules/opp_ingredient_rules.csv), 조합 규칙 [`docs/rules/opp_combo_rules.csv`](rules/opp_combo_rules.csv)
 >
 > 결정 반영
 > - 피부 유형은 **자체 32유형**(Notion "피부 타입 구분 v2"): 설문 16조합 × 관리 방식 2개. 내부 코드 `TYPE_01`~`TYPE_32`, 화면에는 한글 제목과 태그.
 > - 제품은 **자체 제품 DB**(PX 제품).
 > - 사진 분석·리포트·3D는 **Model A**, 루틴·챗봇은 **Model B** 자체 API로 받아 온다(4.9).
-> - 피부 질환·복용약(민감정보)과 구독·멤버십은 **MVP에 포함**한다.
+> - 피부 질환·복용약(민감정보)과 구독·멤버십은 **MVP에 포함**한다. 단 **결제 대행사 연동은 추후 개발**(데이터 구조만 둔다).
 > - 룰 DB·근거 자료는 **스프레드시트**로 작성해 일괄 등록한다.
 > - 상담 비서 스타일은 **구분하지 않는다**(선택 화면 없음).
 >
@@ -96,6 +98,9 @@ erDiagram
 
     products ||--o{ product_ingredients : contains
     products ||--o{ product_traits : matched_by
+    skin_type_questions ||--o{ skin_type_question_options : has
+    ingredient_rules }o--o| ingredient_groups : uses
+    products ||--o{ product_ingredients : contains_inci
     skin_types ||--o{ skin_type_tags : shows
     skin_type_tags }o--|| skin_tags : uses
     users ||--o{ user_products : owns
@@ -122,6 +127,8 @@ erDiagram
 - **subscriptions** (2-4-1 구독 관리, 2-4-1-1 멤버십 상세): `id`, `user_id`, `plan_code`, `status`(ACTIVE / CANCELED / EXPIRED / PAST_DUE), `provider`, `provider_subscription_id`, `started_at`, `current_period_end`, `canceled_at`
 - **payments**: `id`, `subscription_id`, `provider`, `provider_payment_id`(unique), `amount`, `status`(PAID / FAILED / REFUNDED), `paid_at`
 - 결제 카드 정보는 저장하지 않는다. 결제 대행사(PG)의 빌링키·결제 ID만 보관한다.
+- **결제 대행사 연동은 추후 개발.** MVP에는 테이블과 구독 상태 조회만 두고, `provider` 값과 웹훅은 PG가 정해지면 붙인다.
+- **요금제 내용은 아직 정의되지 않았다.** IA에는 화면 이름(2-4-1 구독 관리, 2-4-1-1 멤버십 상세)만 있고 UI 파일에는 구독 화면이 없다. `subscription_plans`는 비워 둔다.
 
 ### 4.2 피부 유형 (자체 32유형)
 
@@ -134,8 +141,8 @@ erDiagram
 | 유분 | O / D | `OILY` / `DRY` | 내 피부 특징 (제목·태그) |
 | 민감도 | S / R | `SENSITIVE` / `RESISTANT` | 내 피부 특징 |
 | 자국(색소) | P / N | `PIGMENTED` / `NON_PIGMENTED` | 내 피부 특징 |
-| W / T | W / T | `W` / `T` | **내 생활 환경**: 코드 대신 실제 응답을 태그로 보여 줌 (예: `야외 활동 3~6시간`, `선크림을 가끔 바름`) |
-| 관리 방식 | F / L | `MULTI_STEP` / `SIMPLE` | **내 관리 방식**: "여러 단계로 관리" / "간단하게 관리" |
+| 노화 요인 | W(위험 요인 많음) / T(적음) | `W` / `T` | **내 생활 환경**: 코드 대신 실제 응답을 태그로 보여 줌 (예: `야외 활동 3~6시간`, `선크림을 가끔 바름`) |
+| 관리 성향 | F(집중형) / L(간편형) | `MULTI_STEP` / `SIMPLE` | **내 관리 방식**: "여러 단계로 관리" / "간단하게 관리" |
 
 - 설문 조합 코드(OSPW 등)는 기존 설문 결과를 연결하기 위한 **내부 참고값**이다. API 응답과 화면에는 노출하지 않는다.
 - 제목은 유분·민감도·자국 세 축으로 정해진다(8조합 → 제목 6개). 같은 제목이라도 태그는 조합마다 다르다.
@@ -144,12 +151,25 @@ erDiagram
 - **skin_types** (기준 데이터, 32행): `code`(PK, `TYPE_01`~`TYPE_32`), `oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`, `title`, `sort_order` — unique(`oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`)
 - **skin_tags** (기준 데이터): `code`, `label`(예: 세안 뒤 당김), `trait` → 제품 매칭 특징(4.7), `kind`(SKIN / ENVIRONMENT)
 - **skin_type_tags**: `skin_type_code`, `tag_code`, `sort_order` — 화면에는 1~2개만 표시
-- **skin_type_questions** (기준 데이터): `id`, `version`, `axis`(OIL / SENSITIVITY / PIGMENTATION / WT / CARE_STYLE), `text`, `options`(jsonb), `environment_tag_code`(nullable: W/T 문항 응답을 생활 환경 태그로 바꿀 때), `sort_order` — IA 규칙: 선택지에 "모르겠음", "기타" 넣지 않음
-- **skin_type_assessments**: `id`, `user_id`, `question_version`, `answers`(jsonb), `axis_results`(jsonb), `result_type_code` → `skin_types.code`, `environment_tags`(text[]: W/T 문항 실제 응답에서 뽑은 생활 환경 태그), `created_at`
+- **skin_type_questions** (기준 데이터, 25행): `id`, `version`, `number`(1~25), `axis`(OIL / SENSITIVITY / PIGMENTATION / WT / CARE_STYLE), `text`, `is_image`(bool), `sort_order` — IA 규칙: 선택지에 "모르겠음", "기타" 넣지 않음
+- **skin_type_question_options** (기준 데이터, 100행): `question_id`, `position`(1~4), `label`, `score`(1~4), `image_url`(이미지 문항만), `environment_tag`(nullable: 생활 환경 태그로 보여 줄 문구, 예: 16번 ③ → `야외 활동 3~6시간`, 17번 ③ → `선크림을 가끔 바름`)
+- **skin_type_assessments**: `id`, `user_id`, `question_version`, `answers`(jsonb: 문항 번호 → 선택 위치), `axis_results`(jsonb: 축별 `sum`, `score`(0~100), `letter`, `borderline`), `survey_code`(내부 참고값, 예: `OSNT-L`), `result_type_code` → `skin_types.code`, `environment_tags`(text[]), `aux_answers`(jsonb), `retest_recommended_at`(nullable), `created_at`
+- **skin_type_aux_questions** (기준 데이터, 점수 미포함): 위장크림 사용 빈도, 생활관에 둘 수 있는 제품 수, PX 구매 가능 여부, 지금 가장 신경 쓰이는 부위. 응답은 `aux_answers`에 저장하고 `service_environments`에도 반영한다(4.3).
 
-**32유형 매핑표 (제안)**
+**설문·채점 규칙** (Notion "군 장병용 피부 유형 진단 설문")
 
-번호는 축 순서(유분 → 민감도 → 자국 → W/T → 관리 방식)대로 매겼다. Notion 문서에는 번호 규칙이 없으니 **확정 필요**.
+- 5축 × 5문항 = 25문항. 축별 문항 번호: 유분 1~5, 민감도 6~10, 색소 11~15, 노화 요인 16~20, 관리 성향 21~25
+- 선택지 ①~④ = 1~4점. 점수가 높을수록 앞 글자(O, S, P, W, F)
+- 축 점수 = (응답한 문항 점수 합 − n) ÷ (3 × n) × 100, n = 그 축에서 응답한 문항 수
+- 판정: 50점 이상이면 앞 글자, 미만이면 뒤 글자. 5문항 모두 응답하면 합 13점 이상이 앞 글자
+- **경계 표시**: 축 점수 40~60점이면 `borderline = true`. 판정은 바꾸지 않고 결과 화면에 "경계" 배지와 앞·뒤 글자 설명을 함께 보여 준다. 경계 축이 하나라도 있으면 4주 루틴 뒤 재검사를 권한다(`retest_recommended_at`).
+- 이미지 문항(4, 10, 11, 13, 19번)은 예시 이미지 4장 중 하나를 고른다. 이미지 20장은 아직 준비 전이다.
+- 결과 매핑: 4글자 + 관리 성향 → 4.2 매핑표의 `TYPE_xx`
+- **민감정보:** 14번(가족력)과 18번(흡연)은 민감정보로 볼 수 있어 설문 시작 전에 동의를 받는다(`consents.type = SENSITIVE_HEALTH`). 동의 범위·문구는 Notion 문서 "남은 과제 5"에서 정한다.
+
+**32유형 매핑표 (확정)**
+
+번호는 축 순서(유분 → 민감도 → 자국 → W/T → 관리 방식)대로 매긴다.
 
 | 내부 코드 | 설문 조합 | 관리 방식 | 결과 제목 | 피부 태그 | 관리 방식 표시 |
 |---|---|---|---|---|---|
@@ -190,7 +210,7 @@ erDiagram
 - **skin_profiles** (1:1): `user_id`, `skin_type_code`(최신 평가 결과, nullable), `oil_tendency`, `sensitivity`, `recurring_patterns`(text[]), `concerns`(text[]), `use_in_consultation`(기본값), `updated_at`
 - **health_notes** (민감정보, MVP 포함): `user_id`, `conditions`(text[]: 피부 질환), `medications`(text[]: 복용약), `consent_id` → `consents`(`SENSITIVE_HEALTH`), `updated_at`
   - `SENSITIVE_HEALTH` 동의 없이는 저장·조회하지 않는다. 동의 철회 시 삭제한다. 컬럼 단위 암호화를 적용한다.
-- **service_environments** (군 복무 환경, 1:1): `user_id`, `wash_available_time`(예: 저녁 21시 이후), `outdoor_training_frequency`(예: 주 2~3회), `duty_pattern`(근무 형태), `product_access`(PX 접근성), `unit_constraints`(부대 분위기·제약, 자유 입력), `updated_at`
+- **service_environments** (군 복무 환경, 1:1): `user_id`, `wash_available_time`(예: 저녁 21시 이후), `outdoor_training_frequency`(예: 주 2~3회), `duty_pattern`(근무 형태), `product_access`(PX 구매 가능 여부), `camo_cream_frequency`(위장크림 사용 빈도), `storable_product_count`(생활관에 둘 수 있는 제품 수), `focus_area`(지금 가장 신경 쓰이는 부위), `unit_constraints`(부대 분위기·제약, 자유 입력), `updated_at` — 설문 보조 정보 4개는 루틴 팁에만 쓰고 점수에 넣지 않는다.
 - **skin_alerts** (알레르기·자극): `id`, `user_id`, `target`(성분명 또는 제품명), `product_id`(nullable), `reaction`, `created_at`
 
 ### 4.4 상담
@@ -205,11 +225,22 @@ erDiagram
 - **report_items**: `id`, `report_id`, `kind`(DO / DONT / AFTERCARE / CAUTION / MEDICAL_WHEN), `text`, `sort_order`
 - **report_item_rules**: `report_item_id`, `rule_id`
 - **report_products**: `report_id`, `product_id`, `reason`, `sort_order`
-- **care_rules** (룰 DB, IA "핵심 구조"): `id`, `sheet_key`(unique, 스프레드시트 행 ID), `problem_type`, `condition`(jsonb: 상태·개인 특성(`skin_type_code` 포함)·환경·제약), `red_flags`(jsonb), `recommended_actions`(text[]), `avoid_actions`(text[]), `recheck_after`, `referral_condition`, `requires_professional`(bool), `active`, `version`
+- **care_rules** (상황별 행동 규칙. 출처: IA "제대로의 핵심 구조" 프레임의 룰 DB 항목 메모 — 문제 유형·상태·개인 특성·환경·제약·위험 신호·권장/회피 행동·재확인 시점·의료기관 안내 조건·근거 출처·전문적 판단 여부. 실제 데이터는 아직 없다): `id`, `sheet_key`(unique, 스프레드시트 행 ID), `problem_type`, `condition`(jsonb: 상태·개인 특성(`skin_type_code` 포함)·환경·제약), `red_flags`(jsonb), `recommended_actions`(text[]), `avoid_actions`(text[]), `recheck_after`, `referral_condition`, `requires_professional`(bool), `active`, `version`
 - **evidence_sources**: `id`, `sheet_key`(unique), `title`, `source_type`(PAPER / GUIDELINE / STAT), `url`, `summary`, `published_at`
 - **care_rule_evidences**: `rule_id`, `evidence_id`
 - **sheet_imports**: `id`, `target`(CARE_RULES / EVIDENCE_SOURCES / PRODUCTS / SKIN_TYPES), `file_name`, `row_count`, `inserted`, `updated`, `deactivated`, `errors`(jsonb), `imported_by`, `imported_at`
 - 등록 방식: 스프레드시트(xlsx 또는 csv)를 올리면 `sheet_key` 기준으로 추가·수정하고, 시트에서 빠진 행은 `active = false`로 바꾼다(삭제하지 않음: 과거 리포트가 참조하기 때문). 검증 오류가 하나라도 있으면 전체를 반영하지 않는다.
+
+**성분 규칙·조합 규칙** (`docs/rules/*.csv`)
+
+- **ingredient_rules** (44행 시트 기준): `id`, `letter`(O / D / S / R / P / N / W / T), `kind`(HELP 도움 / CAUTION 주의), `ingredient_ko`, `inci`(nullable), `match_type`(INGREDIENT 성분 / GROUP 그룹 / USAGE 사용법), `priority`, `reason`, `active`
+- **ingredient_groups**: `code`(예: 에센셜 오일류, 고농도 AHA·BHA, 자외선 차단제), `match_by`(INCI_LIST / CATEGORY / MANUAL), `inci_list`(text[]), `product_category`(nullable) — `match_type = GROUP`인 규칙을 실제 제품 성분과 맞춰 보기 위한 정의. **시트에는 아직 그룹 정의가 없다.**
+- **combo_rules** (10행 시트 기준): `rule_id`(PK, 예: R03), `priority`(1이 가장 먼저), `condition`(예: `S+W`, `F`, `알레르기 응답 있음`, `전체`), `action`(EXCLUDE 제외 / PREFER 우선 / REPLACE 대체 / LIMIT 제한 / SEPARATE 분리 / DISPLAY 표시), `target`, `detail`, `active`
+- 적용 순서:
+  1. 사용자 유형의 글자(예: O·S·N·T + 관리 성향 L)로 `ingredient_rules`에서 도움·주의 성분을 모은다.
+  2. `combo_rules`를 `priority` 순으로 적용한다. R01(알레르기 응답 성분 제외, `skin_alerts` 사용) → R02(S의 주의 성분 우선) → R03~R06(축 조합별 대체·우선·제한) → R07·R08(관리 성향 F/L) → R09·R10(문구 표시).
+  3. 결과 도움·주의 성분 목록을 `product_ingredients`(INCI 기준)와 맞춰 제품 점수와 추천 이유를 만든다.
+- 표시 규칙(R09, R10): 주의 성분은 "주의가 필요한 성분"으로 쓰고 단정 표현을 쓰지 않는다. 트러블이 심하거나 오래가면 피부과 진료 안내 문구를 함께 보여 준다.
 
 ### 4.6 얼굴 촬영·3D·피부 상태 표시
 - **face_captures** (D-01): `id`, `user_id`, `photo_s3_keys`(text[]), `external_job_id`(자체 API 작업 ID), `model_s3_key`(nullable, API에서 받은 3D 결과를 S3에 보관), `status`(PENDING / READY / FAILED), `error`, `captured_at`, `deleted_at`
@@ -223,7 +254,7 @@ erDiagram
 - **product_ingredients**: `product_id`, `name`, `is_key`, `sort_order`
 - **product_traits** (제품·성분 매칭, Notion "피부 타입 구분 v2" 3절): `product_id`, `trait`(DRYNESS 건조함 / OILINESS 번들거림 / SENSITIVITY 자극에 예민함 / FREQUENT_BREAKOUTS 자주 나는 뾰루지 / LASTING_MARKS 오래 남는 자국), `score`(0~100), `reason`
   - 매칭 특징은 5개로 시작한다. 화면 태그가 달라도 같은 특징이면 하나로 묶는다(`세안 뒤 당김`, `각질이 일어남` → `DRYNESS`). 연결은 `skin_tags.trait`에 둔다.
-  - 매칭률(%)은 사용자의 확인된 피부 태그 → 특징 → `product_traits` 점수로 계산하고, 관리 방식이 `SIMPLE`이면 우선순위가 가장 높은 제품 하나부터 보여 준다.
+  - 매칭률(%)은 사용자의 확인된 피부 태그 → 특징 → `product_traits` 점수와, 4.5의 성분 규칙 결과(도움 성분 포함 가점, 주의 성분 포함 감점)를 합쳐 계산하고, 관리 방식이 `SIMPLE`이면 우선순위가 가장 높은 제품 하나부터 보여 준다.
 - **user_products** (3.2): `id`, `user_id`, `product_id`, `role`(세안제 / 보습제 / …), `started_on`, `ended_on`
 - **product_reviews** (3.2.1): `id`, `user_product_id`, `satisfaction`(1~5), `good_tags`(text[]), `bad_tags`(text[]), `comment`, `created_at`
 
@@ -288,10 +319,16 @@ erDiagram
 
 ## 6. 결정 필요
 
-1. **32유형 번호 규칙:** 4.2의 매핑표(축 순서대로 번호)로 확정할지.
-2. **설문 문항:** W/T 문항과 관리 방식(F/L) 문항의 실제 문항·선택지.
-3. **자체 AI API 요청·응답 형식:** `/analyze`, `/routine`, `/chat` 본문 필드. 리포트·3D 결과물 형식 포함.
-4. **룰 DB와 Model A 근거 검색의 관계:** 스프레드시트 룰 DB를 Model A에 입력으로 넘기는지, Model A가 자체 근거만 쓰고 우리 DB는 보관·표시용인지.
-5. **결제 대행사(PG):** 웹 정기결제 PG와 요금제 목록.
-6. **스프레드시트 양식:** 룰 DB·근거 자료 시트의 실제 컬럼.
-7. **관리자 권한:** 일괄 등록을 누가 하는지.
+**확정됨**
+- 32유형 번호 규칙 (4.2 매핑표)
+- 설문 문항·채점 규칙 (Notion "군 장병용 피부 유형 진단 설문")
+- 결제 대행사 연동은 추후 개발
+
+**남은 것**
+1. **자체 AI API 요청·응답 형식** (아직): `/analyze`, `/routine`, `/chat` 본문 필드
+2. **상황별 행동 규칙(`care_rules`)을 둘지:** IA 메모에서 나온 구조이고 실제 데이터는 없다. 성분·조합 규칙(CSV)과 Model A의 근거 검색으로 충분하면 빼고, 필요하면 시트를 따로 만든다.
+3. **성분 그룹 정의:** "에센셜 오일류", "고농도 AHA·BHA", "자외선 차단제" 같은 그룹을 실제 INCI 목록이나 제품 분류로 어떻게 판정할지
+4. **설문 이미지 20장** (이미지 문항 5개 × 4장)
+5. **민감정보 동의 범위·문구:** 흡연, 가족력, 피부 사진, 피부 질환·복용약
+6. **요금제 내용** (IA·UI에 정의 없음)
+7. **스프레드시트 양식, 관리자 권한** (나중에)
