@@ -1,0 +1,10 @@
+# 로컬 개발용 DB. ./gradlew bootRun 시 Spring Boot가 자동으로 띄운다 (Docker 필요).
+services:
+  postgres:
+    image: 'postgres:17'
+    environment:
+      - 'POSTGRES_DB=oppskin'
+      - 'POSTGRES_USER=oppskin'
+      - 'POSTGRES_PASSWORD=oppskin-local'
+    ports:
+      - '5432:5432'
