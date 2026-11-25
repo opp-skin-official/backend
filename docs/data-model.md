@@ -1,13 +1,13 @@
-# 데이터 모델 초안 (v0.3)
+# 데이터 모델 초안 (v0.4)
 
 > 근거 (2026-11-25 기준)
 > - Figma "제대로 IA": 핵심 유저플로우 v1.3, 02 핵심 유저플로우(조건·분기·복귀), NEW IA, IA 정보구조도, 제대로의 핵심 구조, 실제 피부 상담 User Flow, 경과 기록 기준, 2-3(3D)
 > - Figma "제대로 UI": 화면 약 60개
 >
 > 결정 반영
-> - 피부 유형은 바우만이 아니라 **자체 유형**. 내부 코드 `TYPE_01`~`TYPE_32`, 사용자에게는 줄글 제목("번들거리고 예민한 유형" 등)으로 보여 준다.
+> - 피부 유형은 **자체 32유형**(Notion "피부 타입 구분 v2"): 설문 16조합 × 관리 방식 2개. 내부 코드 `TYPE_01`~`TYPE_32`, 화면에는 한글 제목과 태그.
 > - 제품은 **자체 제품 DB**(PX 제품).
-> - 사진 분석과 3D 얼굴 생성은 모두 **자체 API**로 받아 온다.
+> - 사진 분석·리포트·3D는 **Model A**, 루틴·챗봇은 **Model B** 자체 API로 받아 온다(4.9).
 > - 피부 질환·복용약(민감정보)과 구독·멤버십은 **MVP에 포함**한다.
 > - 룰 DB·근거 자료는 **스프레드시트**로 작성해 일괄 등록한다.
 > - 상담 비서 스타일은 **구분하지 않는다**(선택 화면 없음).
@@ -95,7 +95,9 @@ erDiagram
     skin_state_records }o--o| face_captures : shown_on
 
     products ||--o{ product_ingredients : contains
-    products }o--o{ skin_types : suits
+    products ||--o{ product_traits : matched_by
+    skin_types ||--o{ skin_type_tags : shows
+    skin_type_tags }o--|| skin_tags : uses
     users ||--o{ user_products : owns
     user_products }o--|| products : of
     user_products ||--o{ product_reviews : reviewed_in
@@ -122,10 +124,67 @@ erDiagram
 - 결제 카드 정보는 저장하지 않는다. 결제 대행사(PG)의 빌링키·결제 ID만 보관한다.
 
 ### 4.2 피부 유형 (자체 32유형)
-- **skin_types** (기준 데이터, 32행): `code`(PK, `TYPE_01`~`TYPE_32`), `title`(예: 번들거리고 예민한 유형), `description`, `axis_values`(jsonb: 유형을 이루는 축별 값), `care_points`(text[]), `sort_order`
-- **skin_type_questions** (기준 데이터): `id`, `version`, `axis`, `text`, `options`(jsonb), `sort_order` — IA 규칙: 선택지에 "모르겠음", "기타" 넣지 않음
-- **skin_type_assessments**: `id`, `user_id`, `question_version`, `answers`(jsonb), `axis_scores`(jsonb), `result_type_code` → `skin_types.code`, `created_at`
-- 화면 표시는 `skin_types.title`, 제품 추천·행동 규칙은 `code`로 연결한다.
+
+> 근거: Notion "피부 타입 구분 v2". 결과 화면은 **내 피부 특징 → 내 생활 환경 → 내 관리 방식** 순서.
+
+**구성: 설문 4축 조합 16개 × 관리 방식 2개 = 32유형**
+
+| 축 | 값 | DB 값 | 화면에서 쓰는 곳 |
+|---|---|---|---|
+| 유분 | O / D | `OILY` / `DRY` | 내 피부 특징 (제목·태그) |
+| 민감도 | S / R | `SENSITIVE` / `RESISTANT` | 내 피부 특징 |
+| 자국(색소) | P / N | `PIGMENTED` / `NON_PIGMENTED` | 내 피부 특징 |
+| W / T | W / T | `W` / `T` | **내 생활 환경**: 코드 대신 실제 응답을 태그로 보여 줌 (예: `야외 활동 3~6시간`, `선크림을 가끔 바름`) |
+| 관리 방식 | F / L | `MULTI_STEP` / `SIMPLE` | **내 관리 방식**: "여러 단계로 관리" / "간단하게 관리" |
+
+- 설문 조합 코드(OSPW 등)는 기존 설문 결과를 연결하기 위한 **내부 참고값**이다. API 응답과 화면에는 노출하지 않는다.
+- 제목은 유분·민감도·자국 세 축으로 정해진다(8조합 → 제목 6개). 같은 제목이라도 태그는 조합마다 다르다.
+
+**테이블**
+- **skin_types** (기준 데이터, 32행): `code`(PK, `TYPE_01`~`TYPE_32`), `oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`, `title`, `sort_order` — unique(`oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`)
+- **skin_tags** (기준 데이터): `code`, `label`(예: 세안 뒤 당김), `trait` → 제품 매칭 특징(4.7), `kind`(SKIN / ENVIRONMENT)
+- **skin_type_tags**: `skin_type_code`, `tag_code`, `sort_order` — 화면에는 1~2개만 표시
+- **skin_type_questions** (기준 데이터): `id`, `version`, `axis`(OIL / SENSITIVITY / PIGMENTATION / WT / CARE_STYLE), `text`, `options`(jsonb), `environment_tag_code`(nullable: W/T 문항 응답을 생활 환경 태그로 바꿀 때), `sort_order` — IA 규칙: 선택지에 "모르겠음", "기타" 넣지 않음
+- **skin_type_assessments**: `id`, `user_id`, `question_version`, `answers`(jsonb), `axis_results`(jsonb), `result_type_code` → `skin_types.code`, `environment_tags`(text[]: W/T 문항 실제 응답에서 뽑은 생활 환경 태그), `created_at`
+
+**32유형 매핑표 (제안)**
+
+번호는 축 순서(유분 → 민감도 → 자국 → W/T → 관리 방식)대로 매겼다. Notion 문서에는 번호 규칙이 없으니 **확정 필요**.
+
+| 내부 코드 | 설문 조합 | 관리 방식 | 결과 제목 | 피부 태그 | 관리 방식 표시 |
+|---|---|---|---|---|---|
+| `TYPE_01` | `OSPW` | `F` | 번들거리고 예민한 유형 | `번들거림` `새 제품에 따가움` `오래 남는 자국` | 여러 단계로 관리 |
+| `TYPE_02` | `OSPW` | `L` | 번들거리고 예민한 유형 | `번들거림` `새 제품에 따가움` `오래 남는 자국` | 간단하게 관리 |
+| `TYPE_03` | `OSPT` | `F` | 번들거리고 예민한 유형 | `번들거림` `새 제품에 따가움` `오래 남는 자국` | 여러 단계로 관리 |
+| `TYPE_04` | `OSPT` | `L` | 번들거리고 예민한 유형 | `번들거림` `새 제품에 따가움` `오래 남는 자국` | 간단하게 관리 |
+| `TYPE_05` | `OSNW` | `F` | 번들거리고 예민한 유형 | `번들거림` `얼굴이 쉽게 붉어짐` | 여러 단계로 관리 |
+| `TYPE_06` | `OSNW` | `L` | 번들거리고 예민한 유형 | `번들거림` `얼굴이 쉽게 붉어짐` | 간단하게 관리 |
+| `TYPE_07` | `OSNT` | `F` | 번들거리고 예민한 유형 | `번들거림` `얼굴이 쉽게 붉어짐` | 여러 단계로 관리 |
+| `TYPE_08` | `OSNT` | `L` | 번들거리고 예민한 유형 | `번들거림` `얼굴이 쉽게 붉어짐` | 간단하게 관리 |
+| `TYPE_09` | `ORPW` | `F` | 번들대고 자국 남는 유형 | `번들거림` `뾰루지 자국` | 여러 단계로 관리 |
+| `TYPE_10` | `ORPW` | `L` | 번들대고 자국 남는 유형 | `번들거림` `뾰루지 자국` | 간단하게 관리 |
+| `TYPE_11` | `ORPT` | `F` | 번들대고 자국 남는 유형 | `번들거림` `뾰루지 자국` | 여러 단계로 관리 |
+| `TYPE_12` | `ORPT` | `L` | 번들대고 자국 남는 유형 | `번들거림` `뾰루지 자국` | 간단하게 관리 |
+| `TYPE_13` | `ORNW` | `F` | 피부가 잘 번들대는 유형 | `이마와 코가 번들거림` | 여러 단계로 관리 |
+| `TYPE_14` | `ORNW` | `L` | 피부가 잘 번들대는 유형 | `이마와 코가 번들거림` | 간단하게 관리 |
+| `TYPE_15` | `ORNT` | `F` | 피부가 잘 번들대는 유형 | `이마와 코가 번들거림` | 여러 단계로 관리 |
+| `TYPE_16` | `ORNT` | `L` | 피부가 잘 번들대는 유형 | `이마와 코가 번들거림` | 간단하게 관리 |
+| `TYPE_17` | `DSPW` | `F` | 당기고 예민한 유형 | `세안 뒤 당김` `새 제품에 따가움` `오래 남는 자국` | 여러 단계로 관리 |
+| `TYPE_18` | `DSPW` | `L` | 당기고 예민한 유형 | `세안 뒤 당김` `새 제품에 따가움` `오래 남는 자국` | 간단하게 관리 |
+| `TYPE_19` | `DSPT` | `F` | 당기고 예민한 유형 | `세안 뒤 당김` `새 제품에 따가움` `오래 남는 자국` | 여러 단계로 관리 |
+| `TYPE_20` | `DSPT` | `L` | 당기고 예민한 유형 | `세안 뒤 당김` `새 제품에 따가움` `오래 남는 자국` | 간단하게 관리 |
+| `TYPE_21` | `DSNW` | `F` | 당기고 예민한 유형 | `세안 뒤 당김` `얼굴이 쉽게 붉어짐` | 여러 단계로 관리 |
+| `TYPE_22` | `DSNW` | `L` | 당기고 예민한 유형 | `세안 뒤 당김` `얼굴이 쉽게 붉어짐` | 간단하게 관리 |
+| `TYPE_23` | `DSNT` | `F` | 당기고 예민한 유형 | `세안 뒤 당김` `얼굴이 쉽게 붉어짐` | 여러 단계로 관리 |
+| `TYPE_24` | `DSNT` | `L` | 당기고 예민한 유형 | `세안 뒤 당김` `얼굴이 쉽게 붉어짐` | 간단하게 관리 |
+| `TYPE_25` | `DRPW` | `F` | 당기고 자국이 남는 유형 | `세안 뒤 당김` `뾰루지 자국` | 여러 단계로 관리 |
+| `TYPE_26` | `DRPW` | `L` | 당기고 자국이 남는 유형 | `세안 뒤 당김` `뾰루지 자국` | 간단하게 관리 |
+| `TYPE_27` | `DRPT` | `F` | 당기고 자국이 남는 유형 | `세안 뒤 당김` `뾰루지 자국` | 여러 단계로 관리 |
+| `TYPE_28` | `DRPT` | `L` | 당기고 자국이 남는 유형 | `세안 뒤 당김` `뾰루지 자국` | 간단하게 관리 |
+| `TYPE_29` | `DRNW` | `F` | 세안 뒤 잘 당기는 유형 | `세안 뒤 당김` `각질이 일어남` | 여러 단계로 관리 |
+| `TYPE_30` | `DRNW` | `L` | 세안 뒤 잘 당기는 유형 | `세안 뒤 당김` `각질이 일어남` | 간단하게 관리 |
+| `TYPE_31` | `DRNT` | `F` | 세안 뒤 잘 당기는 유형 | `세안 뒤 당김` `각질이 일어남` | 여러 단계로 관리 |
+| `TYPE_32` | `DRNT` | `L` | 세안 뒤 잘 당기는 유형 | `세안 뒤 당김` `각질이 일어남` | 간단하게 관리 |
 
 ### 4.3 피부 프로필·복무 환경
 - **skin_profiles** (1:1): `user_id`, `skin_type_code`(최신 평가 결과, nullable), `oil_tendency`, `sensitivity`, `recurring_patterns`(text[]), `concerns`(text[]), `use_in_consultation`(기본값), `updated_at`
@@ -162,7 +221,9 @@ erDiagram
 ### 4.7 제품 (자체 PX 제품 DB)
 - **products**: `id`, `sheet_key`(unique), `brand`, `name`, `volume`, `price`, `category`(CLEANSER / TONER / LOTION / CREAM / SUNSCREEN / AMPOULE / …), `description`, `features`(text[]), `cautions`(text), `full_ingredients`(text), `source`(정보 출처), `image_url`, `px_available`(bool), `rating_avg`, `review_count`, `updated_at`
 - **product_ingredients**: `product_id`, `name`, `is_key`, `sort_order`
-- **product_skin_type_fits**: `product_id`, `skin_type_code`, `score`(0~100, 궁합점수), `reason` — 매칭률(%)과 "추천 근거"를 이 표에서 가져온다.
+- **product_traits** (제품·성분 매칭, Notion "피부 타입 구분 v2" 3절): `product_id`, `trait`(DRYNESS 건조함 / OILINESS 번들거림 / SENSITIVITY 자극에 예민함 / FREQUENT_BREAKOUTS 자주 나는 뾰루지 / LASTING_MARKS 오래 남는 자국), `score`(0~100), `reason`
+  - 매칭 특징은 5개로 시작한다. 화면 태그가 달라도 같은 특징이면 하나로 묶는다(`세안 뒤 당김`, `각질이 일어남` → `DRYNESS`). 연결은 `skin_tags.trait`에 둔다.
+  - 매칭률(%)은 사용자의 확인된 피부 태그 → 특징 → `product_traits` 점수로 계산하고, 관리 방식이 `SIMPLE`이면 우선순위가 가장 높은 제품 하나부터 보여 준다.
 - **user_products** (3.2): `id`, `user_id`, `product_id`, `role`(세안제 / 보습제 / …), `started_on`, `ended_on`
 - **product_reviews** (3.2.1): `id`, `user_product_id`, `satisfaction`(1~5), `good_tags`(text[]), `bad_tags`(text[]), `comment`, `created_at`
 
@@ -174,6 +235,19 @@ erDiagram
 - **progress_records** (U-05): `id`, `user_id`, `care_plan_id`(nullable), `date`, `perceived_change`(BETTER / SAME / WORSE / UNSURE), `condition`(COMFORT / NORMAL / UNCOMFORTABLE, nullable), `symptoms`(text[]), `execution_note`, `environment_note`, `state_record_id`(nullable, 사진·3D 첨부), `created_at`
 - **product_reactions**: `id`, `user_product_id`, `progress_record_id`(nullable), `date`, `reaction`(BETTER / NO_CHANGE / IRRITATION / UNSURE), `symptoms`(text[]), `onset_note`, `memo`, `created_at`
 - 경과 기록 이후 행동(IA "경과 기록 기준"): BETTER → 계획 유지 여부 확인, SAME → 실행 상황 보고 유지·조정, WORSE → 추가 문진(후속 상담), UNSURE → 말·사진으로 보완하고 부족하면 판단 보류. 이 분기는 서비스 로직이며 별도 테이블은 두지 않는다.
+
+### 4.9 자체 AI 모델 연동
+
+| 모델 | 역할 | 엔드포인트 | 우리 쪽 사용처 |
+|---|---|---|---|
+| Model A (`jedero-analyzer-3d`) | 설문·촬영 → 원인·솔루션 리포트 + 3D 자동 반영 데이터 | `POST /analyze` | C-01·C-02 이후 리포트 생성, D-01 사진 분석·3D, 유형 평가 |
+| Model B (`jedero-routine-chatbot`) | 기간별·일반 루틴 생성, 피부 Q&A 챗봇 | `POST /routine`, `POST /chat` | U-02 루틴 적용, 루틴 조정 대화, 일반 질문 |
+
+- 인증: `X-API-Key` 헤더. 키는 환경변수 `JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY`로만 주입하고 코드·저장소에 두지 않는다. 운영은 AWS Secrets Manager.
+- `GET /health` 확인 결과(2026-11-25): 두 모델 모두 정상. 요청 하나 처리에 **최대 300초**, 컨테이너당 동시 1건, 최대 5개 → 백엔드는 모델 호출을 **비동기 작업**으로 돌리고 프론트는 상태를 조회한다. 첫 요청은 콜드 스타트(약 5~7초)가 더해진다.
+- **ai_jobs**: `id`, `user_id`, `model`(A / B), `endpoint`, `subject_type`, `subject_id`(대화·촬영·계획 등), `status`(QUEUED / RUNNING / DONE / FAILED), `request`(jsonb, 민감정보 제외), `response`(jsonb), `model_version`, `error`, `created_at`, `finished_at`
+- 공개된 OpenAPI 명세에는 요청·응답 본문이 `object`로만 되어 있어 **필드 형식은 아직 모른다**. 형식을 받으면 `care_reports`, `photo_analyses`, `face_captures`, `routine_items` 필드를 응답에 맞춘다.
+- Model A에 근거 검색기(`evidence_retriever`)가 들어 있다. 4.5의 룰 DB·근거 자료와 역할이 겹치는지 정해야 한다(6절).
 
 ## 5. API 초안
 
@@ -214,8 +288,10 @@ erDiagram
 
 ## 6. 결정 필요
 
-1. **32유형을 이루는 축:** 축 이름과 판정 기준, `TYPE_01`~`TYPE_32`와 줄글 제목 매핑표 (받을 예정). `skin_types` 초기 데이터로 넣는다.
-2. **자체 API 스펙:** 사진 분석·3D 생성의 요청·응답 형식, 동기/비동기(작업 ID 조회 또는 콜백), 결과물 형식.
-3. **결제 대행사(PG):** 웹 정기결제에 쓸 PG(예: 토스페이먼츠, 포트원 등)와 요금제 목록.
-4. **스프레드시트 양식:** 룰 DB·근거 자료 시트의 실제 컬럼. 받으면 4.5 필드를 시트에 맞춘다.
-5. **관리자 권한:** 일괄 등록을 누가 하는지(관리자 계정 구분 방식).
+1. **32유형 번호 규칙:** 4.2의 매핑표(축 순서대로 번호)로 확정할지.
+2. **설문 문항:** W/T 문항과 관리 방식(F/L) 문항의 실제 문항·선택지.
+3. **자체 AI API 요청·응답 형식:** `/analyze`, `/routine`, `/chat` 본문 필드. 리포트·3D 결과물 형식 포함.
+4. **룰 DB와 Model A 근거 검색의 관계:** 스프레드시트 룰 DB를 Model A에 입력으로 넘기는지, Model A가 자체 근거만 쓰고 우리 DB는 보관·표시용인지.
+5. **결제 대행사(PG):** 웹 정기결제 PG와 요금제 목록.
+6. **스프레드시트 양식:** 룰 DB·근거 자료 시트의 실제 컬럼.
+7. **관리자 권한:** 일괄 등록을 누가 하는지.
