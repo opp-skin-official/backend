@@ -9,19 +9,25 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import skin.opp.backend.auth.KakaoOAuth2UserService;
+import skin.opp.backend.auth.SecurityConfig;
 
 @WebMvcTest(PingController.class)
-@Import(WebConfig.class)
-@TestPropertySource(properties = "app.cors.allowed-origins=http://localhost:3000")
+@Import(SecurityConfig.class)
+@ActiveProfiles("test")
 class PingControllerTest {
 
     @Autowired
     MockMvc mvc;
 
+    @MockitoBean
+    KakaoOAuth2UserService kakaoUserService;
+
     @Test
-    void pingReturnsOk() throws Exception {
+    void pingIsPublic() throws Exception {
         mvc.perform(get("/api/ping"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ok"))
@@ -29,9 +35,10 @@ class PingControllerTest {
     }
 
     @Test
-    void allowsFrontendOrigin() throws Exception {
+    void allowsFrontendOriginWithCredentials() throws Exception {
         mvc.perform(get("/api/ping").header("Origin", "http://localhost:3000"))
-                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"));
+                .andExpect(header().string("Access-Control-Allow-Origin", "http://localhost:3000"))
+                .andExpect(header().string("Access-Control-Allow-Credentials", "true"));
     }
 
     @Test
