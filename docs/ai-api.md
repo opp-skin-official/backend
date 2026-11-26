@@ -1,6 +1,9 @@
-# 자체 AI 모델 연동 (AI API v4.2)
+# 자체 AI 모델 연동 (AI API v6.3.2)
 
-원본: "제대로(jedero) AI API v4.2.0 백엔드 연동 명세서"(PDF, 6쪽). 아래는 우리 백엔드가 쓰는 부분만 정리한 것이다.
+원본: "제대로(jedero) AI API 백엔드 연동 규격 및 규칙서 v6.3.2"(PDF, 6쪽, 2026-11-26, Model A 5.0.0 / Model B 6.3.2). 아래는 우리 백엔드가 쓰는 부분만 정리한 것이다.
+원본 PDF에는 API 키가 평문으로 들어 있으니 레포·문서에 올리지 않는다.
+
+**v4.2 → v6.3에서 바뀐 것**: 주소(`junseong2im00--…` 새 작업 공간)와 키 교체 / `/chat/stream`의 `delta`가 마크다운, `final.markdown` 추가(저장 기준) / `tool_call`·`tool_result` 이벤트 추가 / `/routine` 단계 분할(1~9일 2단계, 10일 이상 3단계)과 `*_steps[].step_type` 추가 / `/analyze`에 `capture_quality`·`vision_readout`·`revisit_summary` 추가 / 컨테이너 최대 2개.
 
 ## 접속
 
@@ -9,7 +12,7 @@
 | Model A 분석·리포트·3D | `JEDERO_MODEL_A_URL` | `POST /analyze` |
 | Model B 루틴·Q&A | `JEDERO_MODEL_B_URL` | `POST /routine`, `POST /chat`, `POST /chat/stream` (SSE) |
 
-- 헤더: `Content-Type: application/json; charset=utf-8`, `X-API-Key: <키>` (`JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY`). `GET /health`는 인증 없음.
+- 헤더: `Content-Type: application/json; charset=utf-8`, `X-API-Key: <키>`(또는 `Authorization: Bearer <키>`) (`JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY`). `GET /health`는 인증 없음.
 - 코드: `skin.opp.backend.ai.JederoClient`, 설정 `app.ai.*` (`AiProperties`).
 
 ## 요청
@@ -34,15 +37,21 @@
 - 우리 쪽(`ChatService`): `traits.baumann` = 최신 설문 결과 앞 4글자, `traits.allergies` = 주의 성분, `military.training`·`washing` = 생활 환경, `history` = 최근 6개(안전 검사로 바뀐 답변 제외)
 
 ### `/routine` (Model B)
-- `target_days`: 1~365면 `period_plan`(2~3단계 기간 루틴), 0·생략이면 `general_routine`
+- `target_days`: 0·생략이면 `general_routine`(1단계 "매일 반복"), 1~9면 `period_plan` 2단계, 10~365면 3단계(예: 14일 → 1~4, 5~9, 10~14일차). "D-3 이내 신제품·각질제거 금지"는 마지막 단계에만 나온다
 - `goal_event`(선택), `analysis_report`, `survey`는 `/chat`과 같다.
 
 ## 응답
 
 - `/chat`: `chat_response` = `reply`, `action_tips[]`, `follow_up_questions[]`, `evidence_ids[]`, `refer_to_clinician`, `notice`, `referral_notice`
-- `/chat/stream`: SSE `meta` → `delta`(`{text}`, 여러 번) → `final`(`replace_reply: true` + `/chat`과 같은 본문). **delta는 띄어쓰기가 빠질 수 있어** 화면은 final의 `reply`로 바꾼다.
+- `/chat/stream`: SSE `meta` → (`tool_call` → `tool_result`, 선택) → `delta`(`{text, format: "markdown"}`, 여러 번) → `final`(`replace_reply`, `markdown`, `chat_response`, `tool_trace`, `internal_audit`).
+  - `final.markdown`은 실천 팁까지 담긴 전체 답변(마크다운). `chat_response.reply`는 앞뒤 문장만, 팁은 `action_tips`로 따로 온다.
+  - 우리는 `final.markdown`을 답변으로 저장하고 메시지에 `format: "markdown"`을 붙인다(없으면 예전처럼 `reply`, `format: "text"`). 실측: delta는 빈 줄이 빠져 오고 `replace_reply: true`라 화면은 done의 내용으로 바꾼다.
+  - `tool_call`·`tool_result`·`meta`는 프론트로 넘기지 않는다.
+  - 요청에 `attachments`(최대 4개, 각 800자), `enable_tools`(기본 true)를 쓸 수 있다(아직 안 씀).
 - `/routine`: `routine_plan` = `mode`, `target_days`, `summary`, `phases[]`(`phase_label`, `day_range`, `focus`, `morning[]`, `evening[]`, `post_activity[]`, `checkpoint`), `evidence_ids`, `refer_to_clinician`, `notice`, `referral_notice`
-- `/analyze`: `cause_solution_report`(`cause_solution_pairs[]`: `regions`, `state_observation`, `cause_summary`, `solution_action`, `confidence`, `evidence_ids`), `skin3d_payload`(부위 6개 × 채널 6개, `global_profile.baumann_axes`), `ingredient_profile`(`baumann_inferred`, `efficacy_weights`, `recommended_ingredients[]`, `caution_ingredients[]`)
+  - v6.3: 각 단계에 같은 순서의 `morning_steps[]`·`evening_steps[]`·`post_activity_steps[]`(`{text, step_type}`)가 함께 온다. `step_type` 10종: `cleanser`, `toner`, `serum`, `moisturizer`, `sunscreen`, `spot_care`, `shaving_care`, `lip_hand_care`, `mask_pack`(PX 제품 카드 연결용), `habit`(제품 아님). 아직 안 씀.
+- `/analyze`: `cause_solution_report`(`cause_solution_pairs[]`: `regions`, `state_observation`, `cause_summary`, `solution_action`, `confidence`, `evidence_ids`), `skin3d_payload`(부위 6개 × 채널 6개, `global_profile.baumann_axes`), `ingredient_profile`(`baumann_inferred`, `efficacy_weights`, `recommended_ingredients[]`, `caution_ingredients[]`; v5에 `regional_profiles`, `ingredient_conflict_alerts`, `px_matching_vector` 추가)
+  - v5 추가: `capture_quality`(사진을 보낼 때, `retake_recommended`면 재촬영 안내), `vision_readout`, `revisit_summary`(요청에 이전 `skin3d_payload`를 `previous_skin3d_payload`로 보내면 부위별 호전·악화 요약). 우리는 사진·재방문 비교를 아직 안 쓴다
   - 부위: `FOREHEAD`, `CHEEK_LEFT`, `CHEEK_RIGHT`, `NOSE`, `CHIN`, `EYE_AREA` (본인 기준 좌우, 항상 6개)
   - 채널(0~1): `redness`, `spot`, `line`, `pore_density`, `roughness`, `melanin`
 - 모든 응답의 `internal_audit`(내부 근거 원문, `gate_violations`)은 **밖으로 내보내지 않는다**.
@@ -54,14 +63,15 @@
 | 400 | `INVALID_INPUT` | 재시도 안 함 |
 | 401 | `UNAUTHORIZED` | 재시도 안 함 |
 | 422 | `VALIDATION_ERROR` | 재시도 안 함 |
-| 500 | `INTERNAL_ERROR` | 재시도 안 함 |
+| 500 | `INTERNAL_ERROR` | 재시도 안 함 (명세 권장은 1회 재시도) |
 | 502/503/504 | (게이트웨이) | 지수 백오프 재시도 최대 2회 (1초, 2초) |
 | 200 | `gate_violations` 있음 | Model B: 결과를 쓰지 않는다(채팅은 의료기관 안내 문구로 바꿔 `BLOCKED` 저장). Model A: 위반 pair가 빠진 결과를 쓴다 |
 
 - 오류 본문: `{"detail": "...", "error": {"code": "...", "message": "..."}}`
-- 응답 시간: warm `/chat` 4~8초, `/analyze` 5~13초, `/routine` 8~16초, 콜드 스타트 25~45초(3분 호출이 없으면 내려감). 실측: 콜드 약 22초, warm 약 5~10초(2026-11-26).
+- 응답 시간(v6.3 명세): warm `/analyze` 8~14초, `/routine` 8~12초(14일 18~26초), `/chat` 3.5~6초, `/chat/stream` 첫 글자 0.5~1.2초·전체 6~14초. 60초 호출이 없으면 내려가고 콜드 스타트는 A 15~25초, B 45~65초. 실측(2026-11-26): `/health` 콜드 A 35초, B 77초.
+- 명세 권장 대기: `/analyze` 60초, `/routine` 75초, `/chat` 45초, `/chat/stream` 90초.
 - 우리 설정: connect 5초, 응답 대기 90초, 스트리밍 전체 150초. 서버 nginx `proxy_read_timeout`은 310초.
-- 동시 처리: 모델별 컨테이너 최대 5개 × 1건. 넘으면 모델 쪽 큐에서 기다린다.
+- 동시 처리: 모델별 컨테이너 최대 2개 (A는 컨테이너당 1건, B는 8건). 넘으면 모델 쪽 큐에서 기다린다.
 - 워밍업(피크 시간 150초마다 `GET /health`)은 GPU 비용이 늘어 아직 켜지 않았다.
 
 ## 제품 궁합 점수 (`MatchScorer`, `GET /api/products/recommendations`)

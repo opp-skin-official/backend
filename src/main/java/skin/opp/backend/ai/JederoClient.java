@@ -46,7 +46,8 @@ public class JederoClient implements AutoCloseable {
     public enum Model { A, B }
 
     /** 스트리밍 채팅 결과. violations가 비어 있지 않으면 chatResponse를 보여 주면 안 된다. */
-    public record ChatOutcome(JsonNode chatResponse, List<String> violations) {
+    /** markdown: v6.3의 final.markdown(실천 팁까지 담긴 전체 답변), 없으면 null */
+    public record ChatOutcome(JsonNode chatResponse, String markdown, List<String> violations) {
         public boolean blocked() {
             return !violations.isEmpty();
         }
@@ -146,11 +147,13 @@ public class JederoClient implements AutoCloseable {
             }
             case "final" -> {
                 JsonNode body = parse(data);
-                return new ChatOutcome(required(body, "chat_response"), violations(body));
+                String markdown = body.path("markdown").isString() ? body.get("markdown").asString().strip() : null;
+                return new ChatOutcome(required(body, "chat_response"), markdown == null || markdown.isEmpty() ? null : markdown,
+                        violations(body));
             }
             case "error" -> throw errorFrom(200, data);
             default -> {
-                return null; // meta 등은 쓰지 않는다
+                return null; // meta, tool_call, tool_result는 쓰지 않는다
             }
         }
     }

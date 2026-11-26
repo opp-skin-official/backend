@@ -184,6 +184,7 @@ class ChatIntegrationTest {
         assertThat(done.path("role").asString()).isEqualTo("ASSISTANT");
         assertThat(done.path("status").asString()).isEqualTo("DONE");
         assertThat(done.path("content").asString()).isEqualTo("면도 직후에는 순한 보습제를 바르세요.");
+        assertThat(done.path("format").asString()).isEqualTo("text"); // markdown이 없는 응답(이전 형식)
         assertThat(done.path("actionTips").get(0).asString()).isEqualTo("결 방향으로 면도하기");
         assertThat(done.path("followUpQuestions").get(0).asString()).isEqualTo("루틴을 받아보실까요?");
         assertThat(done.path("notice").asString()).isEqualTo("참고용 안내입니다.");
@@ -207,6 +208,34 @@ class ChatIntegrationTest {
         mvc.perform(get("/api/conversations").with(login(userId)))
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].kind").value("QNA"));
+    }
+
+    @Test
+    void markdownAnswerIsSavedAsIs() throws Exception {
+        // v6.3: final.markdown에 실천 팁까지 들어 있는 전체 답변이 오고, 저장은 markdown 기준(명세 4.3)
+        String markdown = "면도 후 따가움은 흔해요.\\n\\n### 실천 팁\\n- **순한 보습제** 바르기\\n\\n더 궁금한 점이 있나요?";
+        ai.enqueue(Reply.sse(
+                "event: meta\ndata: {\"version\":\"6.3.2\"}\n\n",
+                "event: tool_call\ndata: {\"step\":1,\"name\":\"check_ingredient_conflicts\",\"status_ko\":\"점검 중\"}\n\n",
+                "event: tool_result\ndata: {\"step\":1,\"name\":\"check_ingredient_conflicts\",\"result_summary\":\"{}\"}\n\n",
+                "event: delta\ndata: {\"text\":\"면도 후\",\"format\":\"markdown\"}\n\n",
+                "event: final\ndata: {\"replace_reply\":true,\"markdown\":\"" + markdown + "\","
+                        + "\"chat_response\":{\"reply\":\"면도 후 따가움은 흔해요. 더 궁금한 점이 있나요?\","
+                        + "\"action_tips\":[\"순한 보습제 바르기\"],\"follow_up_questions\":[],\"refer_to_clinician\":false,"
+                        + "\"notice\":\"참고용 안내입니다.\"},\"internal_audit\":{\"gate_violations\":[]}}\n\n"));
+        long id = createConversation(null);
+
+        List<Event> events = send(id, "면도 후 따가워요");
+
+        assertThat(events).extracting(Event::name).containsExactly("question", "delta", "done"); // 도구 이벤트는 넘기지 않음
+        JsonNode done = events.getLast().data();
+        assertThat(done.path("format").asString()).isEqualTo("markdown");
+        assertThat(done.path("content").asString())
+                .isEqualTo("면도 후 따가움은 흔해요.\n\n### 실천 팁\n- **순한 보습제** 바르기\n\n더 궁금한 점이 있나요?");
+        assertThat(done.path("actionTips").get(0).asString()).isEqualTo("순한 보습제 바르기");
+        mvc.perform(get("/api/conversations/{id}", id).with(login(userId)))
+                .andExpect(jsonPath("$.messages[1].format").value("markdown"))
+                .andExpect(jsonPath("$.messages[1].content").value(org.hamcrest.Matchers.startsWith("면도 후 따가움은 흔해요.\n\n### 실천 팁")));
     }
 
     @Test
