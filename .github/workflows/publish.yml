@@ -1,6 +1,7 @@
 name: Publish image
 
 # main에 머지되면 백엔드 이미지를 GHCR에 올린다. 서버 반영은 deploy/deploy.sh로 한다.
+# 운영 EC2가 ARM(t4g)이라 linux/arm64도 함께 만든다(멀티 플랫폼 이미지, 서버가 자기 CPU에 맞는 것을 받음).
 on:
   push:
     branches: [main]
@@ -16,6 +17,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+
+      # arm64 실행 단계(useradd 등)를 amd64 러너에서 돌리기 위한 에뮬레이터. Gradle 빌드는 Dockerfile에서 러너 CPU로 돈다.
+      - uses: docker/setup-qemu-action@v4
 
       - uses: docker/setup-buildx-action@v4
 
@@ -36,6 +40,7 @@ jobs:
       - uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
