@@ -28,11 +28,10 @@ public class RoutineService {
     /** 목표일은 오늘부터 최대 1년 뒤까지 */
     static final int MAX_PLAN_DAYS = 365;
 
-    /**
-     * 기본 루틴 (Figma "루틴": 아침·저녁 각각 순하게 세안하기, 보습하기).
-     * 자체 루틴 모델(Model B /routine) 연동 전까지 쓰는 기본값이다.
-     */
-    record DefaultItem(TimeOfDay time, String title, String subtitle) {}
+    /** 루틴 항목 하나. 제목·부제는 routine_items 컬럼 길이(100자)에 맞춰 넣는다. */
+    public record DefaultItem(TimeOfDay time, String title, String subtitle) {}
+
+    /** 기본 루틴 (Figma "루틴": 아침·저녁 각각 순하게 세안하기, 보습하기). 직접 계획을 만들 때 쓴다. */
 
     static final List<DefaultItem> DEFAULT_ITEMS = List.of(
             new DefaultItem(TimeOfDay.MORNING, "순하게 세안하기", "사용 중인 세안 제품"),
@@ -53,13 +52,25 @@ public class RoutineService {
         this.clock = clock;
     }
 
+    private static String cut(String text) {
+        String t = text.strip();
+        return t.length() > 100 ? t.substring(0, 99) + "…" : t;
+    }
+
     private LocalDate today() {
         return LocalDate.now(clock);
     }
 
-    /** 새 관리 계획을 만든다. 진행 중인 계획이 있으면 보관(ARCHIVED)하고 새로 시작한다. */
+    /** 새 관리 계획을 기본 루틴으로 만든다. 진행 중인 계획이 있으면 보관(ARCHIVED)하고 새로 시작한다. */
     @Transactional
     public PlanView createPlan(long userId, PlanRequest request) {
+        return createPlan(userId, request, DEFAULT_ITEMS);
+    }
+
+    /** 새 관리 계획을 주어진 루틴 항목으로 만든다(상담 리포트의 루틴 적용). 항목이 없으면 기본 루틴. */
+    @Transactional
+    public PlanView createPlan(long userId, PlanRequest request, List<DefaultItem> routine) {
+        List<DefaultItem> items = routine.isEmpty() ? DEFAULT_ITEMS : routine;
         LocalDate today = today();
         if (request.targetDate().isBefore(today)) {
             throw badRequest("목표 날짜는 오늘이거나 그 이후여야 해요.");
@@ -86,13 +97,13 @@ public class RoutineService {
                 .param("target", request.targetDate())
                 .query(Long.class).single();
         int order = 0;
-        for (DefaultItem item : DEFAULT_ITEMS) {
+        for (DefaultItem item : items) {
             jdbc.sql("""
                     INSERT INTO routine_items (care_plan_id, time_of_day, title, subtitle, sort_order)
                     VALUES (:p, :t, :title, :sub, :o)
                     """)
-                    .param("p", planId).param("t", item.time().name()).param("title", item.title())
-                    .param("sub", item.subtitle()).param("o", order++).update();
+                    .param("p", planId).param("t", item.time().name()).param("title", cut(item.title()))
+                    .param("sub", item.subtitle() == null ? null : cut(item.subtitle())).param("o", order++).update();
         }
         return view(activePlan(userId).orElseThrow());
     }

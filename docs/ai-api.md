@@ -23,6 +23,7 @@
   - `change`: `worsened` | `improved` | `no_effect`(또는 `unchanged`)
 - `traits`(모두 선택): `survey_answers`(바우만 원시 문진 응답), `oil_water_tendency`, `sensitivity_reactions`, `recurring_patterns`, `allergies_conditions_medication`, `region_types`(부위 → `dry`/`oily`)
 - `military`(9칸, 모두 선택): `training`, `duty`, `washing`, `product_limits`, `unit_climate`, `irritants`, `care_time`, `hygiene_product_access`, `medical_access`
+- 우리 쪽(`ConsultService`, 문진 상담): 문진은 선택지로 받아 `concerns[0]`을 그대로 채운다(값은 소문자, 부위는 대문자). `traits.allergies_conditions_medication` = 주의 성분, `military.training` = 고른 활동 + 생활 환경, `irritants` = 방독면·위장크림·헬멧 턱끈·면도, `care_time`, `washing`, `hygiene_product_access`. 위험 신호가 있으면 AI를 부르지 않는다.
 - 확인 필요: `traits.survey_answers`의 키(예시 `q1_tight`, `q2_oil`…)가 우리 설문 25문항 키와 다르다. 키 목록을 받기 전까지 보내지 않는다.
 
 ### `/chat`, `/chat/stream` (Model B)

@@ -278,6 +278,7 @@ erDiagram
 - **ai_jobs**: `id`, `user_id`, `model`(A / B), `endpoint`, `subject_type`, `subject_id`(대화·촬영·계획 등), `status`(QUEUED / RUNNING / DONE / FAILED), `request`(jsonb, 민감정보 제외), `response`(jsonb), `model_version`, `error`, `created_at`, `finished_at`
 - 요청·응답 형식은 AI API v4.2 명세서로 확인했다 → `docs/ai-api.md`. `care_reports`, `photo_analyses`, `face_captures`, `routine_items` 필드는 그 기능을 만들 때 응답에 맞춘다.
 - 피부 Q&A(`/chat/stream`)는 비동기 작업 대신 SSE로 바로 흘려 보내고, 대화는 `conversations`·`conversation_messages`(V10)에 저장한다.
+- 문진 상담(V11)은 `conversations.kind = 'CONSULT'`, 문진 답은 `consultation_summaries.answers`(jsonb), 결과는 `care_reports.analysis`·`routine_plan`(모델 응답 jsonb, `internal_audit` 제외)으로 보존한다. 4.5의 `report_items`·`evidence_sources`로 나누는 것은 근거 상세 화면을 만들 때 한다. 요청 안에서 Model A → Model B를 차례로 부른다(콜드 스타트 포함 실측 약 50초).
 - Model A에 근거 검색기(`evidence_retriever`)가 들어 있다. 상황별 행동과 근거는 Model A 결과를 쓰고, 우리 쪽은 저장·표시만 한다.
 
 ## 5. API 초안
