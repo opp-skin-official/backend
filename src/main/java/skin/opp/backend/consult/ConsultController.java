@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
 import skin.opp.backend.consult.ConsultDtos.ConsultRequest;
 import skin.opp.backend.consult.ConsultDtos.ConsultView;
+import skin.opp.backend.consult.ConsultDtos.FollowUpRequest;
 import skin.opp.backend.routine.RoutineDtos.PlanView;
 
 @RestController
@@ -31,6 +32,20 @@ public class ConsultController {
     @ResponseStatus(HttpStatus.CREATED)
     public ConsultView create(@AuthenticationPrincipal OAuth2User principal, @Valid @RequestBody ConsultRequest request) {
         return service.create(userId(principal), request);
+    }
+
+    /** 리포트가 있는 가장 최근 상담 (없으면 404) */
+    @GetMapping("/latest")
+    public ConsultView latest(@AuthenticationPrincipal OAuth2User principal) {
+        return service.latest(userId(principal));
+    }
+
+    /** 후속 상담: 이전 분석으로 지금 가능한 루틴만 다시 만든다 */
+    @PostMapping("/{id}/follow-ups")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ConsultView followUp(@AuthenticationPrincipal OAuth2User principal, @PathVariable long id,
+                                @Valid @RequestBody FollowUpRequest request) {
+        return service.followUp(userId(principal), id, request);
     }
 
     @GetMapping("/{id}")
