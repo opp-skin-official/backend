@@ -258,7 +258,7 @@ class ConsultIntegrationTest {
         mvc.perform(post("/api/consultations/{id}/apply", id).with(login(userId)).with(csrf()))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.goalType").value("CUSTOM"))
-                .andExpect(jsonPath("$.goalLabel").value("피부 상담 루틴"))
+                .andExpect(jsonPath("$.goalLabel").value("상담 루틴 마무리"))
                 .andExpect(jsonPath("$.focusGoal").value("SKIN_CHANGE"));
 
         mvc.perform(get("/api/routines/today").with(login(userId)))
