@@ -75,6 +75,7 @@ erDiagram
 | **care_reports** | V11 | `id`, `conversation_id`(unique), `user_id`, `analysis`(jsonb: Model A 결과), `routine_plan`(jsonb: Model B 결과), `applied_plan_id`(→ care_plans), `created_at`, `updated_at` | 모델 응답은 `internal_audit`를 빼고 저장 |
 | **ai_calls** | V13 | `id`, `user_id`, `kind`(CHAT / CONSULT), `created_at` | AI 호출 기록. 최근 24시간 횟수로 사용자별 제한(기본 질문 50·상담 10, 넘으면 429). 실패한 호출도 센다 |
 
+- 회원 탈퇴(`DELETE /api/me`)는 사용자 행과 위 표의 모든 기록(리뷰 포함)을 **바로 지우고** 그 사용자의 모든 로그인 세션(`spring_session`)도 지운다. 되돌릴 수 없다. 외래 키가 CASCADE가 아니라 `AccountDeletionService`가 자식 테이블부터 지우며, users를 참조하는 테이블이 새로 생기면 거기에 넣어야 한다(빠지면 `AccountDeletionIntegrationTest`가 실패).
 - 제품 추천(궁합 점수)은 테이블이 없다. 요청 때마다 최신 설문 유형 + 리포트 `analysis.ingredient_profile` + `skin_alerts` + `product_ingredients`로 계산한다(`MatchScorer`, 성분 규칙은 `resources/rules/ingredient_rules.csv`).
 - 성분·조합 규칙은 테이블이 아니라 CSV다(4.5의 `ingredient_rules`·`combo_rules`는 구상). 지금 쓰는 것은 성분 규칙 중 INCI가 있는 "성분" 행뿐이다.
 - API는 운영이 아닌 환경의 Swagger(`/swagger-ui/index.html`)가 맞다. 5절 표는 처음 구상이다.
@@ -347,7 +348,7 @@ erDiagram
 
 | 메서드 | 경로 | 화면 ID |
 |---|---|---|
-| GET | `/api/me` | 공통 |
+| GET / DELETE | `/api/me` (DELETE = 회원 탈퇴) | 공통, 설정 |
 | GET | `/api/home` | H-01 |
 | POST | `/api/conversations` (`followsReportId`, `useSavedProfile`) | C-01 시작·후속 |
 | POST | `/api/conversations/{id}/messages` (SSE 스트리밍) | C-01 |
