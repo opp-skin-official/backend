@@ -22,6 +22,8 @@ import skin.opp.backend.review.ReviewDtos.SkinOption;
 public class ReviewService {
 
     static final int PAGE_SIZE = 10;
+    /** 이보다 큰 페이지 번호는 거절한다(오프셋 곱셈이 int를 넘지 않게) */
+    static final int MAX_PAGE = 1000;
 
     private static final String VIEW_COLUMNS = """
             r.id, u.nickname, r.rating, r.content, r.skin_option, r.good_tags, r.bad_tags, r.created_at,
@@ -36,7 +38,7 @@ public class ReviewService {
 
     public ReviewPage list(long userId, long productId, int page) {
         category(productId); // 없는 제품이면 404
-        if (page < 0) {
+        if (page < 0 || page > MAX_PAGE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "페이지 번호가 올바르지 않아요.");
         }
         var stats = jdbc.sql("SELECT count(*) AS n, coalesce(avg(rating), 0) AS avg FROM product_reviews WHERE product_id = :p")

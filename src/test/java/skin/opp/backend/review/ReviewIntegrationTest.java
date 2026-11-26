@@ -122,6 +122,9 @@ class ReviewIntegrationTest {
                 .andExpect(jsonPath("$.count").value(1))
                 .andExpect(jsonPath("$.average").value(2.0))
                 .andExpect(jsonPath("$.items[0].badTags[0]").value("건조해요"));
+        // 아주 큰 페이지 번호는 곱셈이 넘쳐 500이 나지 않고 400
+        mvc.perform(get("/api/products/" + cleanser + "/reviews?page=300000000").with(login(u)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

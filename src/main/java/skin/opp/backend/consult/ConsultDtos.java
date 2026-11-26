@@ -4,6 +4,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -54,9 +55,9 @@ public final class ConsultDtos {
             @Min(1) @Max(5) int severity,
             @NotNull Change change,
             boolean redFlag,
-            List<Activity> activities,
+            @Size(max = 10) List<Activity> activities,
             CareTime careTime,
-            List<Product> products,
+            @Size(max = 10) List<Product> products,
             @Min(0) @Max(365) int targetDays) {
 
         public List<Activity> activitiesOrEmpty() {
@@ -71,7 +72,7 @@ public final class ConsultDtos {
     /** 후속 상담: 고민·증상은 이전 상담 그대로, 지금 가능한 관리 시간·제품·목표 기간만 새로 받는다. */
     public record FollowUpRequest(
             @NotNull CareTime careTime,
-            List<Product> products,
+            @Size(max = 10) List<Product> products,
             @Min(0) @Max(365) int targetDays) {}
 
     public record PairView(List<String> regions, String observation, String cause, String solution, String confidence) {}

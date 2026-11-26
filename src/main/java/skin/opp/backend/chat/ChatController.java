@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import skin.opp.backend.ai.AiException;
+import skin.opp.backend.ai.AiQuota;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
 import skin.opp.backend.chat.ChatDtos.ConversationRequest;
 import skin.opp.backend.chat.ChatDtos.ConversationSummary;
@@ -43,10 +44,12 @@ public class ChatController {
     static final long SSE_TIMEOUT_MILLIS = 200_000;
 
     private final ChatService service;
+    private final AiQuota quota;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ChatController(ChatService service) {
+    public ChatController(ChatService service, AiQuota quota) {
         this.service = service;
+        this.quota = quota;
     }
 
     @PostMapping
@@ -77,6 +80,7 @@ public class ChatController {
                            @Valid @RequestBody MessageRequest request, HttpServletResponse response) {
         long userId = userId(principal);
         boolean useSavedProfile = service.requireOwned(userId, id);
+        quota.acquire(userId, AiQuota.Kind.CHAT); // 넘으면 429 (스트림을 열기 전)
         MessageView question = service.saveUserMessage(id, request.content());
 
         // 앞단 nginx가 응답을 모았다가 한 번에 보내지 않게 한다(서버 설정과 상관없이 글자 조각이 바로 흐름).
