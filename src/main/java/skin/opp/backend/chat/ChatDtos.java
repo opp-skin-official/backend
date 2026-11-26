@@ -26,6 +26,8 @@ public final class ChatDtos {
     /** 사용자 메시지는 content만 채운다. */
     public record MessageView(
             long id, Role role, Status status, String content,
+            /* content 형식: markdown(v6.3 답변) 또는 text */
+            String format,
             List<String> actionTips, List<String> followUpQuestions,
             boolean referToClinician, String notice, String referralNotice,
             OffsetDateTime createdAt) {}

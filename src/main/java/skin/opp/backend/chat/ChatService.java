@@ -129,8 +129,10 @@ public class ChatService {
         }
         JsonNode response = outcome.chatResponse();
         String reply = response.path("reply").asString("").strip();
-        if (reply.isEmpty()) throw new AiException(AiException.Code.INTERNAL, 200, "빈 답변");
+        if (reply.isEmpty() && outcome.markdown() == null) throw new AiException(AiException.Code.INTERNAL, 200, "빈 답변");
         ObjectNode extra = json.createObjectNode();
+        // v6.3: 저장은 final.markdown 기준(실천 팁 포함 전체 답변). 없으면 이전처럼 reply
+        extra.put("format", outcome.markdown() != null ? "markdown" : "text");
         for (String field : List.of("action_tips", "follow_up_questions", "evidence_ids")) {
             if (response.path(field).isArray()) extra.set(field, response.get(field));
         }
@@ -138,7 +140,7 @@ public class ChatService {
         for (String field : List.of("notice", "referral_notice")) {
             if (response.path(field).isString()) extra.put(field, response.get(field).asString());
         }
-        return saveAssistant(conversationId, Status.DONE, reply, extra);
+        return saveAssistant(conversationId, Status.DONE, outcome.markdown() != null ? outcome.markdown() : reply, extra);
     }
 
     private MessageView saveAssistant(long conversationId, Status status, String content, ObjectNode payload) {
@@ -181,7 +183,7 @@ public class ChatService {
         JsonNode payload = Optional.ofNullable(rs.getString("payload")).map(json::readTree).orElse(json.createObjectNode());
         return new MessageView(
                 rs.getLong("id"), Role.valueOf(rs.getString("role")), Status.valueOf(rs.getString("status")),
-                rs.getString("content"),
+                rs.getString("content"), payload.path("format").asString("text"),
                 strings(payload.path("action_tips")), strings(payload.path("follow_up_questions")),
                 payload.path("refer_to_clinician").asBoolean(false),
                 payload.path("notice").asString(null), payload.path("referral_notice").asString(null),
