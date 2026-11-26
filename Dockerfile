@@ -1,5 +1,5 @@
-# 1단계: 빌드 (JDK 21)
-FROM eclipse-temurin:21-jdk AS build
+# 1단계: 빌드 (JDK 21). jar는 CPU와 상관없어, 멀티 플랫폼 빌드에서도 빌드하는 기계의 CPU로 한 번만 돈다.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 COPY gradlew settings.gradle build.gradle ./
 COPY gradle gradle
@@ -7,7 +7,7 @@ RUN ./gradlew --no-daemon -q dependencies > /dev/null
 COPY src src
 RUN ./gradlew --no-daemon bootJar -x test
 
-# 2단계: 실행 (JRE 21, root가 아닌 사용자)
+# 2단계: 실행 (JRE 21, root가 아닌 사용자). 대상 플랫폼(amd64·arm64)별로 만들어진다.
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 RUN useradd --system --uid 1001 app
