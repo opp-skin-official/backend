@@ -56,7 +56,8 @@ public class ConsultService {
     /** 일반 루틴(기간 없음)을 관리 계획으로 시작할 때 기본 기간 */
     static final int GENERAL_PLAN_DAYS = 14;
     static final int MAX_ITEMS_PER_TIME = 5;
-    static final String PLAN_LABEL = "피부 상담 루틴";
+    // 루틴 카드에 "{이름}까지 D-n"으로 보인다.
+    static final String PLAN_LABEL = "상담 루틴 마무리";
 
     static final Map<ConcernKind, String> KIND_LABEL = Map.of(
             ConcernKind.ACNE_COMEDONAL_INFLAMMATORY, "여드름·뾰루지",
