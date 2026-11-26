@@ -5,7 +5,6 @@ import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -17,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 import skin.opp.backend.ai.AiException;
 import skin.opp.backend.ai.JederoClient;
+import skin.opp.backend.ai.ProfileContext;
 import skin.opp.backend.chat.ChatDtos.ConversationSummary;
 import skin.opp.backend.chat.ChatDtos.ConversationView;
 import skin.opp.backend.chat.ChatDtos.Kind;
@@ -40,25 +40,17 @@ public class ChatService {
     static final String BLOCKED_REPLY =
             "이 질문에는 안전하게 답하기 어려워요. 증상이 심하거나 오래가면 의무대나 가까운 의료기관에 상담해 주세요.";
 
-    private static final Map<String, String> TRAINING_LABEL = Map.of(
-            "ALMOST_DAILY", "야외훈련 거의 매일",
-            "TWO_TO_THREE_PER_WEEK", "야외훈련 주 2~3회",
-            "WEEKLY_OR_LESS", "야외훈련 주 1회 이하",
-            "IRREGULAR", "야외훈련 일정 불규칙");
-    private static final Map<String, String> WASH_LABEL = Map.of(
-            "MORNING_EVENING", "아침·저녁 세안 가능",
-            "EVENING_ONLY", "저녁에만 세안 가능",
-            "VARIES", "세안 가능 시간이 날마다 다름",
-            "NO_FIXED_TIME", "정해진 세안 시간 없음");
 
     private final JdbcClient jdbc;
     private final ObjectMapper json;
     private final JederoClient ai;
+    private final ProfileContext profile;
 
-    public ChatService(JdbcClient jdbc, ObjectMapper json, JederoClient ai) {
+    public ChatService(JdbcClient jdbc, ObjectMapper json, JederoClient ai, ProfileContext profile) {
         this.jdbc = jdbc;
         this.json = json;
         this.ai = ai;
+        this.profile = profile;
     }
 
     @Transactional
@@ -94,7 +86,7 @@ public class ChatService {
 
     /** 내 대화인지 확인하고 맥락 사용 여부를 돌려준다. 남의 대화면 404. */
     public boolean requireOwned(long userId, long conversationId) {
-        return jdbc.sql("SELECT use_saved_profile FROM conversations WHERE id = :id AND user_id = :u")
+        return jdbc.sql("SELECT use_saved_profile FROM conversations WHERE id = :id AND user_id = :u AND kind = 'QNA'")
                 .param("id", conversationId).param("u", userId).query(Boolean.class).optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "대화를 찾을 수 없어요."));
     }
@@ -123,7 +115,7 @@ public class ChatService {
         ObjectNode payload = json.createObjectNode();
         payload.put("user_message", message(questionId).content());
         if (useSavedProfile) {
-            ObjectNode survey = survey(userId);
+            ObjectNode survey = profile.modelBSurvey(userId);
             if (!survey.isEmpty()) payload.set("survey", survey);
         }
         ArrayNode history = history(conversationId, questionId);
@@ -157,32 +149,6 @@ public class ChatService {
                 .param("payload", json.writeValueAsString(payload)).query(Long.class).single();
         jdbc.sql("UPDATE conversations SET updated_at = now() WHERE id = :id").param("id", conversationId).update();
         return message(id);
-    }
-
-    /** Model B survey: 확정 바우만 유형(설문 결과 앞 4글자), 주의 성분, 생활 환경 */
-    ObjectNode survey(long userId) {
-        ObjectNode survey = json.createObjectNode();
-        ObjectNode traits = json.createObjectNode();
-        jdbc.sql("SELECT survey_code FROM skin_type_assessments WHERE user_id = :u ORDER BY created_at DESC, id DESC LIMIT 1")
-                .param("u", userId).query(String.class).optional()
-                .filter(code -> code.length() >= 4)
-                .ifPresent(code -> traits.put("baumann", code.substring(0, 4)));
-        List<String> alerts = jdbc.sql("SELECT target FROM skin_alerts WHERE user_id = :u ORDER BY id")
-                .param("u", userId).query(String.class).list();
-        if (!alerts.isEmpty()) {
-            ArrayNode allergies = traits.putArray("allergies");
-            alerts.forEach(allergies::add);
-        }
-        if (!traits.isEmpty()) survey.set("traits", traits);
-
-        jdbc.sql("SELECT wash_time, outdoor_training FROM service_environments WHERE user_id = :u")
-                .param("u", userId)
-                .query((rs, i) -> Map.of("wash", rs.getString("wash_time"), "training", rs.getString("outdoor_training")))
-                .optional()
-                .ifPresent(env -> survey.putObject("military")
-                        .put("training", TRAINING_LABEL.getOrDefault(env.get("training"), env.get("training")))
-                        .put("washing", WASH_LABEL.getOrDefault(env.get("wash"), env.get("wash"))));
-        return survey;
     }
 
     /** 이번 질문 앞의 최근 대화(안전 검사로 바뀐 답변은 빼고) */

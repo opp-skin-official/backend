@@ -9,7 +9,7 @@ public final class ChatDtos {
 
     private ChatDtos() {}
 
-    public enum Kind { QNA }
+    public enum Kind { QNA, CONSULT }
 
     public enum Role { USER, ASSISTANT }
 
