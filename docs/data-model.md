@@ -273,10 +273,11 @@ erDiagram
 | Model A (`jedero-analyzer-3d`) | 설문·촬영 → 원인·솔루션 리포트 + 3D 자동 반영 데이터 | `POST /analyze` | C-01·C-02 이후 리포트 생성, D-01 사진 분석·3D, 유형 평가 |
 | Model B (`jedero-routine-chatbot`) | 기간별·일반 루틴 생성, 피부 Q&A 챗봇 | `POST /routine`, `POST /chat` | U-02 루틴 적용, 루틴 조정 대화, 일반 질문 |
 
-- 인증: `X-API-Key` 헤더. 키는 환경변수 `JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY`로만 주입하고 코드·저장소에 두지 않는다. 운영은 AWS Secrets Manager.
+- 인증: `X-API-Key` 헤더. 키는 환경변수 `JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY`로만 주입하고 코드·저장소에 두지 않는다. 운영은 서버 `/opt/oppskin/.env`(권한 600).
 - `GET /health` 확인 결과(2026-11-25): 두 모델 모두 정상. 요청 하나 처리에 **최대 300초**, 컨테이너당 동시 1건, 최대 5개 → 백엔드는 모델 호출을 **비동기 작업**으로 돌리고 프론트는 상태를 조회한다. 첫 요청은 콜드 스타트(약 5~7초)가 더해진다.
 - **ai_jobs**: `id`, `user_id`, `model`(A / B), `endpoint`, `subject_type`, `subject_id`(대화·촬영·계획 등), `status`(QUEUED / RUNNING / DONE / FAILED), `request`(jsonb, 민감정보 제외), `response`(jsonb), `model_version`, `error`, `created_at`, `finished_at`
-- 공개된 OpenAPI 명세에는 요청·응답 본문이 `object`로만 되어 있어 **필드 형식은 아직 모른다**. 형식을 받으면 `care_reports`, `photo_analyses`, `face_captures`, `routine_items` 필드를 응답에 맞춘다.
+- 요청·응답 형식은 AI API v4.2 명세서로 확인했다 → `docs/ai-api.md`. `care_reports`, `photo_analyses`, `face_captures`, `routine_items` 필드는 그 기능을 만들 때 응답에 맞춘다.
+- 피부 Q&A(`/chat/stream`)는 비동기 작업 대신 SSE로 바로 흘려 보내고, 대화는 `conversations`·`conversation_messages`(V10)에 저장한다.
 - Model A에 근거 검색기(`evidence_retriever`)가 들어 있다. 상황별 행동과 근거는 Model A 결과를 쓰고, 우리 쪽은 저장·표시만 한다.
 
 ## 5. API 초안
@@ -325,7 +326,7 @@ erDiagram
 - 상황별 행동 규칙(`care_rules`)은 두지 않음: 성분·조합 규칙 + Model A 결과로 간다
 
 **남은 것**
-1. **자체 AI API 요청·응답 형식** (아직): `/analyze`, `/routine`, `/chat` 본문 필드
+1. ~~**자체 AI API 요청·응답 형식**~~: AI API v4.2 명세서로 확인 → `docs/ai-api.md`. 남은 것: `/analyze`의 `traits.survey_answers` 키 목록
 2. **성분 그룹 정의:** "에센셜 오일류", "고농도 AHA·BHA", "자외선 차단제" 같은 그룹을 실제 INCI 목록이나 제품 분류로 어떻게 판정할지
 3. **설문 이미지 20장** (이미지 문항 5개 × 4장)
 4. **민감정보 동의 범위·문구:** 흡연, 가족력, 피부 사진, 피부 질환·복용약
