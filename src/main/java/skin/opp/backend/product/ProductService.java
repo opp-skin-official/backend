@@ -28,7 +28,8 @@ public class ProductService {
     static final int PAGE_SIZE = 20;
     static final int MAX_QUERY_LENGTH = 50;
 
-    private static final String SUMMARY_COLUMNS = """
+    /** 제품 카드 열 (:u = 사용자). 추천 서비스도 같이 쓴다. */
+    static final String SUMMARY_COLUMNS = """
             p.id, p.brand, p.name, p.category, p.volume, p.price, p.image_url,
             EXISTS (SELECT 1 FROM user_products u WHERE u.product_id = p.id AND u.user_id = :u AND u.kind = 'INTEREST') AS interested,
             EXISTS (SELECT 1 FROM user_products u WHERE u.product_id = p.id AND u.user_id = :u AND u.kind = 'OWNED') AS owned
@@ -150,7 +151,7 @@ public class ProductService {
                 .query((rs, n) -> new Ingredient(rs.getString("name_ko"), rs.getString("inci"))).list();
     }
 
-    private static ProductSummary summary(ResultSet rs) throws SQLException {
+    static ProductSummary summary(ResultSet rs) throws SQLException {
         return new ProductSummary(rs.getLong("id"), rs.getString("brand"), rs.getString("name"),
                 Category.valueOf(rs.getString("category")), rs.getString("volume"), rs.getInt("price"),
                 rs.getString("image_url"), rs.getBoolean("interested"), rs.getBoolean("owned"));

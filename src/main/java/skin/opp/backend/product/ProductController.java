@@ -21,6 +21,7 @@ import skin.opp.backend.product.ProductDtos.MyProductView;
 import skin.opp.backend.product.ProductDtos.PriceRange;
 import skin.opp.backend.product.ProductDtos.ProductDetail;
 import skin.opp.backend.product.ProductDtos.ProductPage;
+import skin.opp.backend.product.ProductDtos.Recommendations;
 import skin.opp.backend.product.ProductDtos.SkinFit;
 import skin.opp.backend.product.ProductDtos.Sort;
 
@@ -28,9 +29,20 @@ import skin.opp.backend.product.ProductDtos.Sort;
 public class ProductController {
 
     private final ProductService service;
+    private final RecommendationService recommendations;
 
-    public ProductController(ProductService service) {
+    public ProductController(ProductService service, RecommendationService recommendations) {
         this.service = service;
+        this.recommendations = recommendations;
+    }
+
+    /** 맞춤 추천: 피부 유형 + 상담 리포트(consultationId, 없으면 최근 리포트) + 주의 성분으로 궁합 점수순 */
+    @GetMapping("/api/products/recommendations")
+    public Recommendations recommendations(
+            @AuthenticationPrincipal OAuth2User principal,
+            @RequestParam(required = false) Long consultationId,
+            @RequestParam(defaultValue = "10") int limit) {
+        return recommendations.recommend(userId(principal), consultationId, limit);
     }
 
     @GetMapping("/api/products")

@@ -64,10 +64,16 @@
 - 동시 처리: 모델별 컨테이너 최대 5개 × 1건. 넘으면 모델 쪽 큐에서 기다린다.
 - 워밍업(피크 시간 150초마다 `GET /health`)은 GPU 비용이 늘어 아직 켜지 않았다.
 
-## 제품 궁합 점수 (제품 추천 때 사용 예정)
+## 제품 궁합 점수 (`MatchScorer`, `GET /api/products/recommendations`)
 
 `MatchScore = clip(50 + 30·S_baumann + 20·S_concern − P_allergen, 0, 99)`
 - `S_baumann`(−0.5~1.0): 바우만 4축 권장·주의 성분 일치도
 - `S_concern`(0~1): `ingredient_profile`·고민 유형 적합도
 - `P_allergen`: 등록한 알레르기 성분(INCI 정확 일치) 포함 시 60. 바우만 유형이 없으면 점수 없음(null)
 - 성분 유사도: 전성분을 표준 INCI + 효능 8종 벡터로 바꾸고, 앞 순서 가중치 `1/log2(i+2)`로 `efficacy_weights`와 가중 코사인 유사도
+
+우리 구현(`skin.opp.backend.product`):
+- S_baumann: 성분 규칙 시트(`src/main/resources/rules/ingredient_rules.csv`, docs/rules 사본)의 사용자 유형 글자별 도움·주의 성분 중 **INCI가 있는 "성분" 규칙만** 제품 주요 성분과 맞춘다. 도움 가중치 합 1.5 = 1, 주의 합 1.0 = 1, 차이를 −0.5~1로 자른다. "그룹"(에센셜 오일류 등)은 그룹 정의가 없어 아직 반영하지 않는다.
+- S_concern: 효능 8종 벡터 대신 리포트 `recommended_ingredients`(INCI·score)와 제품 성분(순서 가중치)의 가중 코사인. 리포트 `caution_ingredients` 중 INCI로 맞출 수 있는 키(향료·변성알코올·설페이트)가 들어 있으면 절반.
+- 제품 성분은 `product_ingredients`(INCI, sort_order)만 쓴다. 표기 통일: D-판테놀→판테놀, Parfum→Fragrance 등.
+- 조합 규칙 R03~R08(대체·제한·분리)은 제품 점수가 아니라 루틴·안내 규칙이라 점수에 넣지 않았다.
