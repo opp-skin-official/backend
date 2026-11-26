@@ -1,6 +1,7 @@
 package skin.opp.backend.chat;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import java.io.IOException;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -72,10 +74,14 @@ public class ChatController {
      */
     @PostMapping(path = "/{id}/messages", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter send(@AuthenticationPrincipal OAuth2User principal, @PathVariable long id,
-                           @Valid @RequestBody MessageRequest request) {
+                           @Valid @RequestBody MessageRequest request, HttpServletResponse response) {
         long userId = userId(principal);
         boolean useSavedProfile = service.requireOwned(userId, id);
         MessageView question = service.saveUserMessage(id, request.content());
+
+        // 앞단 nginx가 응답을 모았다가 한 번에 보내지 않게 한다(서버 설정과 상관없이 글자 조각이 바로 흐름).
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
 
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MILLIS);
         executor.execute(() -> {
