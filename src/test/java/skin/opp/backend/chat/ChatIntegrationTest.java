@@ -248,7 +248,8 @@ class ChatIntegrationTest {
         List<Event> events = send(id, "질문");
 
         assertThat(events).extracting(Event::name).containsExactly("question", "error");
-        assertThat(events.get(1).data().path("code").asString()).isEqualTo("UNAVAILABLE");
+        assertThat(events.get(1).data().path("code").asString())
+                .as("events=%s, AI 요청=%s", events, ai.received).isEqualTo("UNAVAILABLE");
         assertThat(events.get(1).data().path("message").asString()).contains("잠시 후 다시 시도");
         assertThat(ai.received).hasSize(3);
         mvc.perform(get("/api/conversations/{id}", id).with(login(userId)))
