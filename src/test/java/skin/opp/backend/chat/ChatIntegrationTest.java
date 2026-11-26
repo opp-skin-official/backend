@@ -120,6 +120,9 @@ class ChatIntegrationTest {
                         .content(json.writeValueAsString(Map.of("content", content))))
                 .andExpect(request().asyncStarted())
                 .andReturn();
+        // nginx가 SSE를 모았다가 보내지 않도록 (deploy/nginx-api.opp.skin.conf와 별개로 보장)
+        assertThat(result.getResponse().getHeader("X-Accel-Buffering")).isEqualTo("no");
+        assertThat(result.getResponse().getHeader("Cache-Control")).isEqualTo("no-cache");
         long deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
         String body = "";
         while (System.nanoTime() < deadline) {
