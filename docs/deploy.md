@@ -3,7 +3,7 @@
 ## 구성
 
 ```
-사용자 ──https──▶ (프론트 도메인, Vercel, Next.js)
+사용자 ──https──▶ (프론트 도메인, Cloudflare Workers, Next.js)
           └─https──▶ api.opp.skin (EC2 3.24.204.31, 시드니 ap-southeast-2)
                        nginx (Let's Encrypt, 이미 설치됨)
                          └─▶ 127.0.0.1:8080 백엔드 컨테이너 ─▶ PostgreSQL 컨테이너 (볼륨 pgdata)
@@ -43,10 +43,11 @@
 
 prod 프로필(이미지 기본값)에서 바뀌는 것: 쿠키 `Secure`, 쿠키 도메인 = `COOKIE_DOMAIN`, 프록시 헤더(Tomcat RemoteIpValve, 사설 IP에서 온 것만) 신뢰, API 문서 끔.
 
-## 프론트 (Vercel)
+## 프론트 (Cloudflare Workers)
 
-- 레포 `opp-skin-official/frontend` 연결, 환경변수 `NEXT_PUBLIC_API_BASE_URL=https://api.opp.skin`
-- 도메인을 `opp.skin` 아래로 연결 (Cloudflare DNS에 Vercel이 안내하는 레코드 추가)
+- 레포 `opp-skin-official/frontend`를 `@opennextjs/cloudflare`로 Workers(`opp-skin-frontend`)에 배포한다. 자세한 방법은 프론트 README "배포".
+- 빌드 변수 `NEXT_PUBLIC_API_BASE_URL=https://api.opp.skin` (빌드 때 들어감)
+- 도메인을 `opp.skin` 아래로 연결 (대시보드 Workers > 도메인, DNS가 Cloudflare라 자동)
 
 ## 카카오 콘솔
 
