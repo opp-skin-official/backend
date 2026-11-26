@@ -29,6 +29,10 @@ jobs:
       # 컴파일 + 테스트 + bootJar
       - run: ./gradlew build --console=plain
 
+      # 운영 이미지가 빌드되는지 확인 (푸시는 하지 않음)
+      - name: Build Docker image
+        run: docker build -t oppskin-backend:ci .
+
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v7
