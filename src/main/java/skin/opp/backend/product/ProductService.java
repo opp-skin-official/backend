@@ -36,9 +36,11 @@ public class ProductService {
             """;
 
     private final JdbcClient jdbc;
+    private final RecommendationService recommendations;
 
-    public ProductService(JdbcClient jdbc) {
+    public ProductService(JdbcClient jdbc, RecommendationService recommendations) {
         this.jdbc = jdbc;
+        this.recommendations = recommendations;
     }
 
     public ProductPage list(long userId, List<Category> categories, String query, List<SkinFit> skinFits,
@@ -83,15 +85,28 @@ public class ProductService {
             case PRICE_DESC -> "p.price DESC, p.id ASC";
             case RECOMMENDED -> "p.created_at DESC, p.id DESC";
         };
-        var spec = jdbc.sql("SELECT " + SUMMARY_COLUMNS + " FROM products p WHERE " + where
-                        + " ORDER BY " + order + " LIMIT :limit OFFSET :offset")
-                .param("u", userId).param("limit", PAGE_SIZE + 1).param("offset", page * PAGE_SIZE);
+        MatchScorer.Profile profile = recommendations.profile(userId, null);
+        // 추천순 + 피부 유형 있음: 조건에 맞는 제품 전부에 궁합 점수를 매겨 점수순으로 자른다(PX 제품 수가 많지 않음).
+        boolean byScore = sort == Sort.RECOMMENDED && profile.baumann() != null;
+        var spec = jdbc.sql("SELECT " + SUMMARY_COLUMNS + " FROM products p WHERE " + where + " ORDER BY " + order
+                        + (byScore ? "" : " LIMIT :limit OFFSET :offset"))
+                .param("u", userId);
+        if (!byScore) spec = spec.param("limit", PAGE_SIZE + 1).param("offset", page * PAGE_SIZE);
         for (Object[] p : params) {
             spec = spec.param((String) p[0], p[1]);
         }
         List<ProductSummary> rows = spec.query((rs, n) -> summary(rs)).list();
-        boolean hasNext = rows.size() > PAGE_SIZE;
-        return new ProductPage(hasNext ? rows.subList(0, PAGE_SIZE) : rows, page, hasNext);
+        var scores = recommendations.score(profile, rows.stream().map(ProductSummary::id).toList());
+        List<ProductSummary> scored = new ArrayList<>(rows.stream()
+                .map(r -> r.withMatchScore(scores.get(r.id()).score())).toList());
+        if (byScore) {
+            // 같은 점수는 등록순(최신 먼저) 유지
+            scored.sort(java.util.Comparator.comparing((ProductSummary r) -> r.matchScore() == null ? -1 : r.matchScore()).reversed());
+            int from = Math.min(page * PAGE_SIZE, scored.size());
+            scored = new ArrayList<>(scored.subList(from, Math.min(from + PAGE_SIZE + 1, scored.size())));
+        }
+        boolean hasNext = scored.size() > PAGE_SIZE;
+        return new ProductPage(hasNext ? scored.subList(0, PAGE_SIZE) : scored, page, hasNext);
     }
 
     public ProductDetail detail(long userId, long productId) {
@@ -154,7 +169,7 @@ public class ProductService {
     static ProductSummary summary(ResultSet rs) throws SQLException {
         return new ProductSummary(rs.getLong("id"), rs.getString("brand"), rs.getString("name"),
                 Category.valueOf(rs.getString("category")), rs.getString("volume"), rs.getInt("price"),
-                rs.getString("image_url"), rs.getBoolean("interested"), rs.getBoolean("owned"));
+                rs.getString("image_url"), rs.getBoolean("interested"), rs.getBoolean("owned"), null);
     }
 
     private static List<String> strings(Array array) throws SQLException {

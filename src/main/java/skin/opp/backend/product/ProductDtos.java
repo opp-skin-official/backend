@@ -32,9 +32,15 @@ public final class ProductDtos {
     /** 내 보유제품 종류: 구매한 제품 / 관심 제품 */
     public enum MyProductKind { OWNED, INTEREST }
 
+    /** matchScore = 궁합 점수 0~99 (피부 유형이 없거나 점수를 내지 않은 목록이면 null) */
     public record ProductSummary(
             long id, String brand, String name, Category category, String volume, int price,
-            String imageUrl, boolean interested, boolean owned) {}
+            String imageUrl, boolean interested, boolean owned, Integer matchScore) {
+
+        public ProductSummary withMatchScore(Integer score) {
+            return new ProductSummary(id, brand, name, category, volume, price, imageUrl, interested, owned, score);
+        }
+    }
 
     public record ProductPage(List<ProductSummary> items, int page, boolean hasNext) {}
 

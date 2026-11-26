@@ -172,4 +172,55 @@ class RecommendationIntegrationTest {
                 .andExpect(jsonPath("$.detail").value("상담 리포트를 찾을 수 없어요."));
         assertThat(inactive).isPositive();
     }
+
+    private JsonNode list(String query) throws Exception {
+        return json.readTree(mvc.perform(get("/api/products" + query).with(login(userId)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).path("items");
+    }
+
+    @Test
+    void recommendedSortUsesMatchScoreWhenSkinTypeExists() throws Exception {
+        // 스킨 유형 없음: 기존처럼 최신 등록순, 점수 없음
+        JsonNode before = list("?sort=RECOMMENDED");
+        assertThat(before.get(0).path("id").asLong()).isEqualTo(harsh);
+        assertThat(before.get(0).path("matchScore").isNull()).isTrue();
+
+        skinType("OSNT-L");
+        JsonNode after = list("?sort=RECOMMENDED");
+        assertThat(after).extracting(n -> n.path("id").asLong()).containsExactly(soothing, plain, harsh);
+        assertThat(after.get(0).path("matchScore").asInt()).isEqualTo(80);
+        assertThat(after.get(2).path("matchScore").asInt()).isEqualTo(35);
+    }
+
+    @Test
+    void priceSortKeepsOrderButShowsScores() throws Exception {
+        skinType("OSNT-L");
+        jdbc.sql("UPDATE products SET price = 30000 WHERE id = :id").param("id", soothing).update();
+
+        JsonNode items = list("?sort=PRICE_DESC");
+
+        assertThat(items.get(0).path("id").asLong()).isEqualTo(soothing);
+        assertThat(items).allSatisfy(n -> assertThat(n.path("matchScore").isNumber()).isTrue());
+    }
+
+    @Test
+    void recommendedSortRespectsFiltersAndPages() throws Exception {
+        skinType("OSNT-L");
+        jdbc.sql("UPDATE products SET category = 'TONER' WHERE id = :id").param("id", harsh).update();
+        for (int i = 0; i < 21; i++) product("추가 " + i, true, "정제수:Water");
+
+        JsonNode toners = list("?sort=RECOMMENDED&category=TONER");
+        assertThat(toners).extracting(n -> n.path("id").asLong()).containsExactly(harsh);
+
+        JsonNode page0 = json.readTree(mvc.perform(get("/api/products?sort=RECOMMENDED&page=0").with(login(userId)))
+                .andReturn().getResponse().getContentAsString());
+        JsonNode page1 = json.readTree(mvc.perform(get("/api/products?sort=RECOMMENDED&page=1").with(login(userId)))
+                .andReturn().getResponse().getContentAsString());
+        assertThat(page0.path("items").size()).isEqualTo(20);
+        assertThat(page0.path("hasNext").asBoolean()).isTrue();
+        assertThat(page0.path("items").get(0).path("id").asLong()).isEqualTo(soothing);
+        assertThat(page1.path("items").size()).isEqualTo(4); // 3 + 21 = 24개
+        assertThat(page1.path("hasNext").asBoolean()).isFalse();
+        assertThat(page1.path("items").get(page1.path("items").size() - 1).path("id").asLong()).isEqualTo(harsh);
+    }
 }

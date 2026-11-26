@@ -1,6 +1,7 @@
 package skin.opp.backend.product;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -46,7 +47,24 @@ public class RecommendationService {
      * 점수 높은 순, 점수가 없으면(피부 유형 없음) 등록순.
      */
     public Recommendations recommend(long userId, Long consultationId, int limit) {
-        String baumann = profile.baumann(userId);
+        Profile p = profile(userId, consultationId);
+        List<ProductSummary> products = jdbc.sql("SELECT " + ProductService.SUMMARY_COLUMNS
+                        + " FROM products p WHERE p.active ORDER BY p.created_at DESC, p.id DESC")
+                .param("u", userId).query((rs, i) -> ProductService.summary(rs)).list();
+        Map<Long, Result> results = score(p, products.stream().map(ProductSummary::id).toList());
+
+        List<Recommendation> items = new ArrayList<>();
+        for (ProductSummary product : products) {
+            Result r = results.get(product.id());
+            items.add(new Recommendation(product.withMatchScore(r.score()), r.score(), r.reasons(), r.cautions()));
+        }
+        items.sort(Comparator.comparing((Recommendation r) -> r.score() == null ? -1 : r.score()).reversed());
+        return new Recommendations(p.baumann() != null, !p.recommended().isEmpty(),
+                items.subList(0, Math.min(Math.clamp(limit, 1, MAX_LIMIT), items.size())));
+    }
+
+    /** 점수를 낼 사용자 정보: 피부 유형, 리포트 추천·주의 성분, 등록한 주의 성분 */
+    Profile profile(long userId, Long consultationId) {
         JsonNode ingredientProfile = ingredientProfile(userId, consultationId);
         List<Recommended> recommended = new ArrayList<>();
         List<String> cautionKeys = new ArrayList<>();
@@ -59,28 +77,24 @@ public class RecommendationService {
         for (JsonNode n : ingredientProfile.path("caution_ingredients")) {
             if (n.path("key").isString()) cautionKeys.add(n.path("key").asString());
         }
-        Profile p = new Profile(baumann, recommended, cautionKeys, profile.alerts(userId));
+        return new Profile(profile.baumann(userId), recommended, cautionKeys, profile.alerts(userId));
+    }
 
+    /** 주어진 제품들의 점수 (제품 id → 결과). 주요 성분이 없는 제품도 결과가 있다. */
+    Map<Long, Result> score(Profile p, Collection<Long> productIds) {
         Map<Long, List<ProductIngredient>> ingredients = new HashMap<>();
-        jdbc.sql("""
-                SELECT pi.product_id, pi.name_ko, pi.inci FROM product_ingredients pi
-                JOIN products p ON p.id = pi.product_id WHERE p.active ORDER BY pi.product_id, pi.sort_order
-                """).query(rs -> {
-            ingredients.computeIfAbsent(rs.getLong("product_id"), k -> new ArrayList<>())
-                    .add(new ProductIngredient(rs.getString("name_ko"), rs.getString("inci")));
-        });
-        List<ProductSummary> products = jdbc.sql("SELECT " + ProductService.SUMMARY_COLUMNS
-                        + " FROM products p WHERE p.active ORDER BY p.created_at DESC, p.id DESC")
-                .param("u", userId).query((rs, i) -> ProductService.summary(rs)).list();
-
-        List<Recommendation> items = new ArrayList<>();
-        for (ProductSummary product : products) {
-            Result r = scorer.score(ingredients.getOrDefault(product.id(), List.of()), p);
-            items.add(new Recommendation(product, r.score(), r.reasons(), r.cautions()));
+        if (!productIds.isEmpty()) {
+            jdbc.sql("""
+                    SELECT product_id, name_ko, inci FROM product_ingredients
+                    WHERE product_id IN (:ids) ORDER BY product_id, sort_order
+                    """).param("ids", productIds).query(rs -> {
+                ingredients.computeIfAbsent(rs.getLong("product_id"), k -> new ArrayList<>())
+                        .add(new ProductIngredient(rs.getString("name_ko"), rs.getString("inci")));
+            });
         }
-        items.sort(Comparator.comparing((Recommendation r) -> r.score() == null ? -1 : r.score()).reversed());
-        return new Recommendations(baumann != null, !recommended.isEmpty(),
-                items.subList(0, Math.min(Math.clamp(limit, 1, MAX_LIMIT), items.size())));
+        Map<Long, Result> out = new HashMap<>();
+        for (Long id : productIds) out.put(id, scorer.score(ingredients.getOrDefault(id, List.of()), p));
+        return out;
     }
 
     private JsonNode ingredientProfile(long userId, Long consultationId) {
