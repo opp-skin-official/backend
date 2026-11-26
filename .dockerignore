@@ -1,0 +1,9 @@
+# 비밀값과 빌드 산출물은 이미지에 넣지 않는다.
+.env
+.env.*
+.git
+.gradle
+build
+docs
+compose.yaml
+*.md

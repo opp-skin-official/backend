@@ -11,6 +11,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
@@ -21,12 +22,33 @@ public class SecurityConfig {
 
     private final String frontendUrl;
     private final List<String> allowedOrigins;
+    private final String cookieDomain;
+    private final boolean cookieSecure;
 
     public SecurityConfig(
             @Value("${app.frontend-url}") String frontendUrl,
-            @Value("${app.cors.allowed-origins}") List<String> allowedOrigins) {
+            @Value("${app.cors.allowed-origins}") List<String> allowedOrigins,
+            @Value("${app.cookie.domain:}") String cookieDomain,
+            @Value("${app.cookie.secure:false}") boolean cookieSecure) {
         this.frontendUrl = frontendUrl;
         this.allowedOrigins = allowedOrigins;
+        this.cookieDomain = cookieDomain;
+        this.cookieSecure = cookieSecure;
+    }
+
+    /**
+     * XSRF-TOKEN 쿠키. 운영에서 프론트(app.도메인)와 백엔드(api.도메인)가 다르면
+     * 상위 도메인(app.cookie.domain)으로 내려야 프론트 스크립트가 읽을 수 있다.
+     */
+    CookieCsrfTokenRepository csrfTokenRepository() {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> {
+            cookie.path("/").sameSite("Lax").secure(cookieSecure);
+            if (!cookieDomain.isBlank()) {
+                cookie.domain(cookieDomain);
+            }
+        });
+        return repository;
     }
 
     @Bean
@@ -35,7 +57,7 @@ public class SecurityConfig {
         http
                 .cors(Customizer.withDefaults())
                 // SPA용 CSRF: XSRF-TOKEN 쿠키를 프론트가 읽어 X-XSRF-TOKEN 헤더로 보낸다.
-                .csrf(csrf -> csrf.spa())
+                .csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokenRepository()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/ping", "/actuator/health", "/v3/api-docs/**", "/swagger-ui/**")
                         .permitAll()

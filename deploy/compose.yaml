@@ -1,0 +1,38 @@
+# 운영 서버(EC2, api.opp.skin)용. 서버의 /opt/oppskin 에 이 파일과 .env를 둔다.
+# 외부 요청은 서버에 이미 있는 nginx(HTTPS, Let's Encrypt)가 받아 127.0.0.1:8080으로 넘긴다.
+name: oppskin
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: oppskin
+      POSTGRES_USER: oppskin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD를 .env에 넣어 주세요}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oppskin -d oppskin"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # 포트를 열지 않는다: 백엔드 컨테이너만 접근한다.
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/opp-skin-official/backend:latest}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://db:5432/oppskin
+      DB_USERNAME: oppskin
+    depends_on:
+      db:
+        condition: service_healthy
+    # 서버 안에서만 열어 nginx만 접근하게 한다.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  pgdata:
