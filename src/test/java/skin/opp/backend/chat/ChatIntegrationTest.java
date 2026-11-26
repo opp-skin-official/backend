@@ -124,7 +124,9 @@ class ChatIntegrationTest {
         String body = "";
         while (System.nanoTime() < deadline) {
             body = result.getResponse().getContentAsString(StandardCharsets.UTF_8);
-            if (body.contains("event:done") || body.contains("event:error")) break;
+            // 이벤트는 여러 번에 나눠 쓰이므로, 마지막 이벤트의 data와 끝 빈 줄까지 온 뒤에 읽는다.
+            boolean terminal = body.contains("event:done") || body.contains("event:error");
+            if (terminal && body.endsWith("\n\n")) break;
             Thread.sleep(20);
         }
         List<Event> events = new ArrayList<>();
