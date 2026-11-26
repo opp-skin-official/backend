@@ -46,6 +46,12 @@ public final class ProductDtos {
             List<Ingredient> keyIngredients, String fullIngredients, String imageUrl,
             boolean interested, boolean owned) {}
 
+    /** 맞춤 추천 하나: score는 0~99(피부 유형이 없으면 null), reasons = 좋은 점, cautions = 주의할 점 */
+    public record Recommendation(ProductSummary product, Integer score, List<String> reasons, List<String> cautions) {}
+
+    /** hasSkinType = 설문 결과가 있어 점수를 냈는지, usedReport = 상담 리포트 성분을 반영했는지 */
+    public record Recommendations(boolean hasSkinType, boolean usedReport, List<Recommendation> items) {}
+
     public record MyProductRequest(@NotNull Long productId, @NotNull MyProductKind kind) {}
 
     public record MyProductView(long productId, MyProductKind kind, ProductSummary product) {}
