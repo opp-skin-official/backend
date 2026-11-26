@@ -23,7 +23,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -41,6 +42,7 @@ class RecommendationIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -52,7 +54,7 @@ class RecommendationIntegrationTest {
         jdbc.sql("DELETE FROM user_products").update();
         jdbc.sql("DELETE FROM product_ingredients").update();
         jdbc.sql("DELETE FROM products").update();
-        userId = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "추천 사용자", null, null)).getId();
+        userId = TestUsers.member(userService, terms, "추천 사용자");
         soothing = product("진정 크림", true, "판테놀:Panthenol", "병풀추출물:Centella Asiatica Extract", "정제수:Water");
         plain = product("기본 로션", true, "정제수:Water", "글리세린:Glycerin");
         harsh = product("향 토너", true, "향료:Parfum", "변성알코올:Alcohol Denat.", "정제수:Water");
@@ -166,7 +168,7 @@ class RecommendationIntegrationTest {
         assertThat(withFirst.path("items").size()).isEqualTo(1);
         assertThat(withFirst.path("items").get(0).path("reasons").toString()).doesNotContain("리포트 추천 성분 추천\"]");
 
-        long other = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "다른 사용자", null, null)).getId();
+        long other = TestUsers.member(userService, terms, "다른 사용자");
         mvc.perform(get("/api/products/recommendations?consultationId=" + first).with(login(other)))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("상담 리포트를 찾을 수 없어요."));

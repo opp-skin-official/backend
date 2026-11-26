@@ -36,7 +36,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 
 /** 관리 계획·오늘의 루틴·체크를 실제 PostgreSQL로 확인한다. 오늘은 2026-11-25(수, KST)로 고정. Docker 없으면 건너뜀. */
@@ -65,6 +66,7 @@ class RoutineIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired ObjectMapper json;
 
     private long userId;
@@ -75,7 +77,7 @@ class RoutineIntegrationTest {
     }
 
     private long newUser() {
-        return userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "사용자", null, null)).getId();
+        return TestUsers.member(userService, terms, "사용자");
     }
 
     private RequestPostProcessor login(long id) {

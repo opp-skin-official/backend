@@ -39,7 +39,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import skin.opp.backend.ai.FakeAiServer;
 import skin.opp.backend.ai.FakeAiServer.Reply;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -78,6 +79,7 @@ class ChatIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -86,7 +88,7 @@ class ChatIntegrationTest {
     @BeforeEach
     void setUp() {
         ai.reset();
-        userId = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "채팅 사용자", null, null)).getId();
+        userId = TestUsers.member(userService, terms, "채팅 사용자");
     }
 
     private RequestPostProcessor login(long id) {
@@ -274,7 +276,7 @@ class ChatIntegrationTest {
     @Test
     void otherUsersConversationIsHidden() throws Exception {
         long id = createConversation(null);
-        long other = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "다른 사용자", null, null)).getId();
+        long other = TestUsers.member(userService, terms, "다른 사용자");
 
         mvc.perform(get("/api/conversations/{id}", id).with(login(other))).andExpect(status().isNotFound());
         mvc.perform(post("/api/conversations/{id}/messages", id).with(login(other)).with(csrf())

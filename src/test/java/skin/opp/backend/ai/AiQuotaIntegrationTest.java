@@ -36,7 +36,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import skin.opp.backend.ai.FakeAiServer.Reply;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 import tools.jackson.databind.ObjectMapper;
 
@@ -77,6 +78,7 @@ class AiQuotaIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -89,7 +91,7 @@ class AiQuotaIntegrationTest {
     }
 
     private long newUser() {
-        return userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "제한 사용자", null, null)).getId();
+        return TestUsers.member(userService, terms, "제한 사용자");
     }
 
     private RequestPostProcessor login(long id) {

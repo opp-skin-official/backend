@@ -28,7 +28,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 
 /** 실제 PostgreSQL로 설문 시드 데이터, 채점, 동의 처리, 저장·조회를 확인한다. Docker 없으면 건너뜀. */
@@ -44,6 +45,7 @@ class SkinSurveyIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -51,8 +53,7 @@ class SkinSurveyIntegrationTest {
 
     @BeforeEach
     void createUser() {
-        userId = userService.upsertFromKakao(
-                new KakaoProfile(System.nanoTime(), "설문 사용자", null, null)).getId();
+        userId = TestUsers.member(userService, terms, "설문 사용자");
     }
 
     private RequestPostProcessor login(long id) {
@@ -137,8 +138,9 @@ class SkinSurveyIntegrationTest {
                 .param("u", userId).query(Integer.class).single()).isEqualTo(4);
         assertThat(jdbc.sql("select (axis_results->'WT'->>'answered')::int from skin_type_assessments where user_id = :u")
                 .param("u", userId).query(Integer.class).single()).isEqualTo(4);
-        assertThat(jdbc.sql("select count(*) from consents where user_id = :u").param("u", userId)
-                .query(Long.class).single()).isZero();
+        // 민감정보 동의는 기록되지 않는다(가입 때 받은 필수 약관 동의만 있음)
+        assertThat(jdbc.sql("select count(*) from consents where user_id = :u and type not in (:required)")
+                .param("u", userId).param("required", TermsService.REQUIRED).query(Long.class).single()).isZero();
     }
 
     @Test
@@ -179,7 +181,7 @@ class SkinSurveyIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.axes[4].borderline").value(true));
 
-        long otherUser = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "다른 사용자", null, null)).getId();
+        long otherUser = TestUsers.member(userService, terms, "다른 사용자");
         mvc.perform(get("/api/skin-survey/assessments/latest").with(login(otherUser)))
                 .andExpect(status().isNotFound());
     }

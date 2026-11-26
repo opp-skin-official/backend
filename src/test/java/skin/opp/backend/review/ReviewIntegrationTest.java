@@ -30,7 +30,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.ObjectMapper;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 
 /** 제품 리뷰 작성·수정·삭제·목록을 실제 PostgreSQL로 확인한다. 제품은 테스트 안에서만 만든다. Docker 없으면 건너뜀. */
@@ -46,6 +47,7 @@ class ReviewIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
     @Autowired ObjectMapper json;
 
@@ -66,7 +68,7 @@ class ReviewIntegrationTest {
     }
 
     private long newUser(String nickname) {
-        return userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), nickname, null, null)).getId();
+        return TestUsers.member(userService, terms, nickname);
     }
 
     private RequestPostProcessor login(long id) {

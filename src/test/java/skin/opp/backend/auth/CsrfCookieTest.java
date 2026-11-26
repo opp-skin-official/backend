@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import skin.opp.backend.user.TermsService;
 import org.springframework.test.web.servlet.MockMvc;
 import skin.opp.backend.common.PingController;
 
@@ -22,6 +23,9 @@ class CsrfCookieTest {
 
     @Autowired
     MockMvc mvc;
+
+    @MockitoBean
+    TermsService terms;
 
     @MockitoBean
     KakaoOAuth2UserService kakaoUserService;
