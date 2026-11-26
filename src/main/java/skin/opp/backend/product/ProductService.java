@@ -26,6 +26,8 @@ import skin.opp.backend.product.ProductDtos.Sort;
 public class ProductService {
 
     static final int PAGE_SIZE = 20;
+    /** 이보다 큰 페이지 번호는 거절한다(오프셋 곱셈이 int를 넘지 않게) */
+    static final int MAX_PAGE = 1000;
     static final int MAX_QUERY_LENGTH = 50;
 
     /** 제품 카드 열 (:u = 사용자). 추천 서비스도 같이 쓴다. */
@@ -45,7 +47,7 @@ public class ProductService {
 
     public ProductPage list(long userId, List<Category> categories, String query, List<SkinFit> skinFits,
                             List<PriceRange> prices, Sort sort, int page) {
-        if (page < 0) {
+        if (page < 0 || page > MAX_PAGE) {
             throw badRequest("페이지 번호가 올바르지 않아요.");
         }
         StringBuilder where = new StringBuilder("p.active");

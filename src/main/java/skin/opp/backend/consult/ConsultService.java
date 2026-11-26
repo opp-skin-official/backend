@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import skin.opp.backend.ai.AiException;
+import skin.opp.backend.ai.AiQuota;
 import skin.opp.backend.ai.JederoClient;
 import skin.opp.backend.ai.ProfileContext;
 import skin.opp.backend.consult.ConsultDtos.Activity;
@@ -92,9 +93,10 @@ public class ConsultService {
     private final RoutineService routines;
     private final TransactionTemplate tx;
     private final Clock clock;
+    private final AiQuota quota;
 
     public ConsultService(JdbcClient jdbc, ObjectMapper json, JederoClient ai, ProfileContext profile,
-                          RoutineService routines, TransactionTemplate tx, Clock clock) {
+                          RoutineService routines, TransactionTemplate tx, Clock clock, AiQuota quota) {
         this.jdbc = jdbc;
         this.json = json;
         this.ai = ai;
@@ -102,6 +104,7 @@ public class ConsultService {
         this.routines = routines;
         this.tx = tx;
         this.clock = clock;
+        this.quota = quota;
     }
 
     /**
@@ -117,6 +120,7 @@ public class ConsultService {
             return get(userId, id);
         }
 
+        quota.acquire(userId, AiQuota.Kind.CONSULT);
         ObjectNode analysis = analyze(userId, request);
         JsonNode routine = routineOrNull(userId, request, analysis);
         return get(userId, saveReport(userId, request, analysis, routine, null));
@@ -148,6 +152,7 @@ public class ConsultService {
                 old.severity(), old.change(), false, old.activities(), request.careTime(), request.products(),
                 request.targetDays());
         JsonNode analysis = analysisOf(previousId);
+        quota.acquire(userId, AiQuota.Kind.CONSULT);
         JsonNode routine;
         try {
             routine = ai.routine(routinePayload(userId, answers, analysis));
@@ -204,6 +209,7 @@ public class ConsultService {
         ConsultView view = get(userId, id);
         if (view.report() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "리포트가 없는 상담이에요.");
         JsonNode analysis = analysisOf(id);
+        quota.acquire(userId, AiQuota.Kind.CONSULT);
         JsonNode routine;
         try {
             routine = ai.routine(routinePayload(userId, view.answers(), analysis));

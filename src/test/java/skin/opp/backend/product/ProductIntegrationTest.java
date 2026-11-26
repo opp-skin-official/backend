@@ -116,6 +116,8 @@ class ProductIntegrationTest {
                 .andExpect(jsonPath("$.items[0].price").value(10000));
         mvc.perform(get("/api/products?category=SOAP").with(login(userId))).andExpect(status().isBadRequest());
         mvc.perform(get("/api/products?q=" + "가".repeat(51)).with(login(userId))).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/products?page=-1").with(login(userId))).andExpect(status().isBadRequest());
+        mvc.perform(get("/api/products?page=300000000").with(login(userId))).andExpect(status().isBadRequest());
     }
 
     @Test

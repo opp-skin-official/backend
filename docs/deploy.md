@@ -46,6 +46,7 @@
 | `KAKAO_CLIENT_SECRET` | | ✓ | 카카오 로그인 클라이언트 시크릿 |
 | `JEDERO_MODEL_A_URL`, `JEDERO_MODEL_B_URL` | | | 자체 AI 모델 주소 |
 | `JEDERO_MODEL_A_API_KEY`, `JEDERO_MODEL_B_API_KEY` | | ✓ | |
+| `AI_LIMIT_CHAT_PER_DAY`, `AI_LIMIT_CONSULT_PER_DAY` | | | 사용자별 AI 호출 제한(최근 24시간). 기본 질문 50·상담 10, 0이면 제한 없음. 넘으면 429 |
 
 prod 프로필(이미지 기본값)에서 바뀌는 것: 쿠키 `Secure`, 쿠키 도메인 = `COOKIE_DOMAIN`, 프록시 헤더(Tomcat RemoteIpValve, 사설 IP에서 온 것만) 신뢰, API 문서 끔.
 

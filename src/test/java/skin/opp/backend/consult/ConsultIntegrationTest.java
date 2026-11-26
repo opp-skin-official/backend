@@ -213,6 +213,10 @@ class ConsultIntegrationTest {
         create(request(false, "EVENING_ONLY").replace("\"severity\":3", "\"severity\":6")).andExpect(status().isBadRequest());
         create(request(false, "EVENING_ONLY").replace("\"regions\":[\"CHIN\",\"CHEEK_LEFT\"]", "\"regions\":[]"))
                 .andExpect(status().isBadRequest());
+        // 목록은 항목 수 상한이 있다
+        String many = String.join(",", java.util.Collections.nCopies(50, "\"SHAVING\""));
+        create(request(false, "EVENING_ONLY").replace("\"activities\":[\"OUTDOOR_TRAINING\",\"GAS_MASK\",\"SHAVING\"]",
+                "\"activities\":[" + many + "]")).andExpect(status().isBadRequest());
         assertThat(ai.received).isEmpty();
     }
 

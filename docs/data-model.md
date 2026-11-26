@@ -1,4 +1,4 @@
-# 데이터 모델 초안 (v0.6)
+# 데이터 모델 (v0.7)
 
 > 근거 (2026-11-25 기준)
 > - Figma "제대로 IA": 핵심 유저플로우 v1.3, 02 핵심 유저플로우(조건·분기·복귀), NEW IA, IA 정보구조도, 제대로의 핵심 구조, 실제 피부 상담 User Flow, 경과 기록 기준, 2-3(3D)
@@ -15,7 +15,69 @@
 > - 규칙·제품 데이터는 **스프레드시트**로 작성해 일괄 등록한다.
 > - 상담 비서 스타일은 **구분하지 않는다**(선택 화면 없음).
 >
-> 확정 전 초안이다. 6절 "결정 필요"를 정한 뒤 Flyway 마이그레이션으로 옮긴다.
+> **0절이 지금 DB에 실제로 있는 테이블**(Flyway V1~V13, 2026-11-26 기준)이다. 1~6절은 설계 초안으로, 아직 만들지 않은 테이블(구독·결제, 얼굴 촬영·3D, 근거 자료, 루틴 조정 등)과 처음 구상이 남아 있다. 둘이 다르면 0절이 맞다.
+
+## 0. 지금 만들어진 테이블 (V1~V13)
+
+```mermaid
+erDiagram
+    users ||--o{ consents : agrees
+    users ||--o| service_environments : has
+    users ||--o{ skin_alerts : registers
+    users ||--o{ skin_type_assessments : takes
+    skin_type_assessments }o--|| skin_types : results_in
+    skin_types ||--o{ skin_type_tags : shows
+    skin_type_tags }o--|| skin_tags : uses
+    skin_type_questions ||--o{ skin_type_question_options : has
+
+    users ||--o{ conversations : starts
+    conversations ||--o{ conversation_messages : contains
+    conversations ||--o| consultation_summaries : answers
+    conversations ||--o| care_reports : produces
+    conversations }o--o| conversations : follows
+    care_reports }o--o| care_plans : applied_as
+    users ||--o{ ai_calls : uses
+
+    users ||--o{ care_plans : plans
+    care_plans ||--o{ routine_items : has
+    routine_items ||--o{ routine_checks : checked
+    users ||--o{ progress_records : writes
+
+    products ||--o{ product_ingredients : contains
+    users ||--o{ user_products : keeps
+    user_products }o--|| products : of
+    users ||--o{ product_reviews : writes
+    product_reviews }o--|| products : about
+```
+
+| 테이블 | 마이그레이션 | 컬럼 | 비고 |
+|---|---|---|---|
+| **users** | V2 | `id`, `kakao_id`(unique), `nickname`, `email`, `profile_image_url`, `created_at`, `updated_at`, `deleted_at` | 카카오 로그인 |
+| **consents** | V2 | `id`, `user_id`, `type`, `agreed_at`, `revoked_at` | |
+| spring_session* | V3 | (Spring Session JDBC 표준) | 로그인 세션 |
+| **skin_types** | V4 | `code`, `oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`, `title`, `sort_order` | 32유형 기준 데이터, 축 5개 조합 unique |
+| **skin_tags** / **skin_type_tags** | V4 | `code`, `label`, `trait` / `skin_type_code`, `tag_code`, `sort_order` | 유형별 화면 태그 |
+| **skin_type_questions** / **skin_type_question_options** | V4 | `id`, `version`, `number`, `axis`, `text`, `is_image`, `sensitive` / `question_id`, `position`(1~4), `label`, `score`(1~4), `environment_tag` | 설문 문항 |
+| **skin_type_assessments** | V4 | `id`, `user_id`, `question_version`, `answers`(jsonb), `axis_results`(jsonb), `survey_code`, `result_type_code`, `environment_tags`, `retest_recommended_at`, `created_at` | 최신 행이 현재 피부 유형(`survey_code` 앞 4글자 = 바우만 유형, 예: OSNT) |
+| **service_environments** | V5 | `user_id`(PK), `wash_time`, `outdoor_training`, `allergy_experience`, `updated_at` | 복무 환경 3문항 |
+| **skin_alerts** | V5 | `id`, `user_id`, `target`, `created_at` | 주의(알레르기) 성분·제품, unique(`user_id`, `target`). 궁합 점수에서 −60 |
+| **care_plans** | V6 | `id`, `user_id`, `goal_type`, `goal_label`, `focus_goal`, `start_date`, `target_date`, `status`(ACTIVE / ARCHIVED), `created_at` | `target_date ≥ start_date` |
+| **routine_items** | V6 | `id`, `care_plan_id`, `time_of_day`(MORNING / EVENING), `title`, `subtitle`, `sort_order` | |
+| **routine_checks** | V6 | `routine_item_id`, `check_date`, `checked_at` | PK(`routine_item_id`, `check_date`) |
+| **progress_records** | V7 | `id`, `user_id`, `record_date`, `perceived_change`, `skin_condition`, `memo`, `created_at`, `updated_at` | 하루 하나, unique(`user_id`, `record_date`) |
+| **products** | V8 | `id`, `sheet_key`(unique), `brand`, `name`, `category`, `volume`, `price`(≥0), `summary`, `recommendation`, `skin_fits`, `features`, `full_ingredients`, `image_url`, `px_available`, `active`, `created_at`, `updated_at` | PX 제품 |
+| **product_ingredients** | V8 | `product_id`, `sort_order`, `name_ko`, `inci` | 주요 성분. 궁합 점수는 이 INCI와 순서(앞일수록 가중치 큼)만 쓴다 |
+| **user_products** | V8 | `id`, `user_id`, `product_id`, `kind`(OWNED / INTEREST), `created_at` | unique(`user_id`, `product_id`, `kind`) |
+| **product_reviews** | V9 | `id`, `product_id`, `user_id`, `rating`(1~5), `content`, `skin_option`, `good_tags`, `bad_tags`, `created_at`, `updated_at` | 사용자당 제품 하나에 리뷰 하나 |
+| **conversations** | V10·V11·V12 | `id`, `user_id`, `kind`(QNA / CONSULT), `use_saved_profile`, `title`, `state`(CONSULT만: COMPLETED / REFERRED), `follows_id`(후속 상담이면 이전 상담), `created_at`, `updated_at` | 피부 Q&A 채팅과 문진 상담을 함께 담는다 |
+| **conversation_messages** | V10 | `id`, `conversation_id`, `role`(USER / ASSISTANT), `status`(DONE / BLOCKED), `content`, `payload`(jsonb), `created_at` | Q&A 채팅 메시지 |
+| **consultation_summaries** | V11 | `conversation_id`(PK), `answers`(jsonb: 문진 답 전체), `red_flag`, `confirmed_at` | |
+| **care_reports** | V11 | `id`, `conversation_id`(unique), `user_id`, `analysis`(jsonb: Model A 결과), `routine_plan`(jsonb: Model B 결과), `applied_plan_id`(→ care_plans), `created_at`, `updated_at` | 모델 응답은 `internal_audit`를 빼고 저장 |
+| **ai_calls** | V13 | `id`, `user_id`, `kind`(CHAT / CONSULT), `created_at` | AI 호출 기록. 최근 24시간 횟수로 사용자별 제한(기본 질문 50·상담 10, 넘으면 429). 실패한 호출도 센다 |
+
+- 제품 추천(궁합 점수)은 테이블이 없다. 요청 때마다 최신 설문 유형 + 리포트 `analysis.ingredient_profile` + `skin_alerts` + `product_ingredients`로 계산한다(`MatchScorer`, 성분 규칙은 `resources/rules/ingredient_rules.csv`).
+- 성분·조합 규칙은 테이블이 아니라 CSV다(4.5의 `ingredient_rules`·`combo_rules`는 구상). 지금 쓰는 것은 성분 규칙 중 INCI가 있는 "성분" 행뿐이다.
+- API는 운영이 아닌 환경의 Swagger(`/swagger-ui/index.html`)가 맞다. 5절 표는 처음 구상이다.
 
 ## 1. 화면 ID → 도메인
 
