@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.util.UriComponentsBuilder;
 import skin.opp.backend.user.AccountDeletionService;
 import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.User;
 import skin.opp.backend.user.UserRepository;
 
@@ -41,6 +42,9 @@ class AuthEndpointsTest {
 
     @MockitoBean
     AccountDeletionService accountDeletion; // 탈퇴는 AccountDeletionIntegrationTest에서 확인
+
+    @MockitoBean
+    TermsService terms; // 약관 동의는 TermsIntegrationTest에서 확인
 
     private static User savedUser(long id, String nickname) {
         User user = User.fromKakao(new KakaoProfile(1000L + id, nickname, "https://img.example/p.jpg", null));

@@ -11,6 +11,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import skin.opp.backend.user.TermsService;
 import org.springframework.test.web.servlet.MockMvc;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
 import skin.opp.backend.auth.SecurityConfig;
@@ -22,6 +23,9 @@ class PingControllerTest {
 
     @Autowired
     MockMvc mvc;
+
+    @MockitoBean
+    TermsService terms;
 
     @MockitoBean
     KakaoOAuth2UserService kakaoUserService;

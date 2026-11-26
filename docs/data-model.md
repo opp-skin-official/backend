@@ -15,9 +15,9 @@
 > - 규칙·제품 데이터는 **스프레드시트**로 작성해 일괄 등록한다.
 > - 상담 비서 스타일은 **구분하지 않는다**(선택 화면 없음).
 >
-> **0절이 지금 DB에 실제로 있는 테이블**(Flyway V1~V13, 2026-11-26 기준)이다. 1~6절은 설계 초안으로, 아직 만들지 않은 테이블(구독·결제, 얼굴 촬영·3D, 근거 자료, 루틴 조정 등)과 처음 구상이 남아 있다. 둘이 다르면 0절이 맞다.
+> **0절이 지금 DB에 실제로 있는 테이블**(Flyway V1~V14, 2026-11-26 기준)이다. 1~6절은 설계 초안으로, 아직 만들지 않은 테이블(구독·결제, 얼굴 촬영·3D, 근거 자료, 루틴 조정 등)과 처음 구상이 남아 있다. 둘이 다르면 0절이 맞다.
 
-## 0. 지금 만들어진 테이블 (V1~V13)
+## 0. 지금 만들어진 테이블 (V1~V14)
 
 ```mermaid
 erDiagram
@@ -53,7 +53,7 @@ erDiagram
 | 테이블 | 마이그레이션 | 컬럼 | 비고 |
 |---|---|---|---|
 | **users** | V2 | `id`, `kakao_id`(unique), `nickname`, `email`, `profile_image_url`, `created_at`, `updated_at`, `deleted_at` | 카카오 로그인 |
-| **consents** | V2 | `id`, `user_id`, `type`, `agreed_at`, `revoked_at` | |
+| **consents** | V2·V14 | `id`, `user_id`, `type`(TERMS / PRIVACY / SENSITIVE_HEALTH), `version`, `agreed_at`, `revoked_at` | TERMS·PRIVACY는 필수 약관 동의(버전별). 민감정보(설문 가족력·흡연)는 SENSITIVE_HEALTH |
 | spring_session* | V3 | (Spring Session JDBC 표준) | 로그인 세션 |
 | **skin_types** | V4 | `code`, `oil`, `sensitivity`, `pigmentation`, `wt`, `care_style`, `title`, `sort_order` | 32유형 기준 데이터, 축 5개 조합 unique |
 | **skin_tags** / **skin_type_tags** | V4 | `code`, `label`, `trait` / `skin_type_code`, `tag_code`, `sort_order` | 유형별 화면 태그 |
@@ -75,6 +75,7 @@ erDiagram
 | **care_reports** | V11 | `id`, `conversation_id`(unique), `user_id`, `analysis`(jsonb: Model A 결과), `routine_plan`(jsonb: Model B 결과), `applied_plan_id`(→ care_plans), `created_at`, `updated_at` | 모델 응답은 `internal_audit`를 빼고 저장 |
 | **ai_calls** | V13 | `id`, `user_id`, `kind`(CHAT / CONSULT), `created_at` | AI 호출 기록. 최근 24시간 횟수로 사용자별 제한(기본 질문 50·상담 10, 넘으면 429). 실패한 호출도 센다 |
 
+- 필수 약관 동의: 로그인한 사용자가 현재 버전(`TermsService.CURRENT_VERSION`)의 TERMS·PRIVACY에 동의하기 전에는 `/api/me`(조회·탈퇴)·`/api/me/terms`(동의)·`/api/ping` 말고는 403(`TermsInterceptor`). 약관 문구를 바꾸면 백엔드 버전과 프론트 `src/lib/terms.ts`의 `TERMS_VERSION`을 같이 올려 모두에게 다시 동의받는다.
 - 회원 탈퇴(`DELETE /api/me`)는 사용자 행과 위 표의 모든 기록(리뷰 포함)을 **바로 지우고** 그 사용자의 모든 로그인 세션(`spring_session`)도 지운다. 되돌릴 수 없다. 외래 키가 CASCADE가 아니라 `AccountDeletionService`가 자식 테이블부터 지우며, users를 참조하는 테이블이 새로 생기면 거기에 넣어야 한다(빠지면 `AccountDeletionIntegrationTest`가 실패).
 - 제품 추천(궁합 점수)은 테이블이 없다. 요청 때마다 최신 설문 유형 + 리포트 `analysis.ingredient_profile` + `skin_alerts` + `product_ingredients`로 계산한다(`MatchScorer`, 성분 규칙은 `resources/rules/ingredient_rules.csv`).
 - 성분·조합 규칙은 테이블이 아니라 CSV다(4.5의 `ingredient_rules`·`combo_rules`는 구상). 지금 쓰는 것은 성분 규칙 중 INCI가 있는 "성분" 행뿐이다.
@@ -348,7 +349,8 @@ erDiagram
 
 | 메서드 | 경로 | 화면 ID |
 |---|---|---|
-| GET / DELETE | `/api/me` (DELETE = 회원 탈퇴) | 공통, 설정 |
+| GET / DELETE | `/api/me` (`termsAgreed`, DELETE = 회원 탈퇴) | 공통, 설정 |
+| POST | `/api/me/terms` (`version`) | 약관 동의 |
 | GET | `/api/home` | H-01 |
 | POST | `/api/conversations` (`followsReportId`, `useSavedProfile`) | C-01 시작·후속 |
 | POST | `/api/conversations/{id}/messages` (SSE 스트리밍) | C-01 |

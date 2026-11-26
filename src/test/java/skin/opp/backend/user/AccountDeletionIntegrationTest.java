@@ -24,6 +24,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import skin.opp.backend.TestUsers;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
 
 /** 회원 탈퇴: 본인 기록은 모두 지우고 다른 사람 기록은 그대로 둔다. Docker 없으면 건너뜀. */
@@ -39,6 +40,7 @@ class AccountDeletionIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
 
     private RequestPostProcessor login(long id) {
@@ -48,7 +50,7 @@ class AccountDeletionIntegrationTest {
     }
 
     private long newUser(String nickname) {
-        return userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), nickname, null, null)).getId();
+        return TestUsers.member(userService, terms, nickname);
     }
 
     /** users를 참조하는 모든 테이블에 이 사용자 기록을 하나 이상 만든다. */

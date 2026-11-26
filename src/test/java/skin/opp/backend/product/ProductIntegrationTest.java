@@ -26,7 +26,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import skin.opp.backend.auth.KakaoOAuth2UserService;
-import skin.opp.backend.user.KakaoProfile;
+import skin.opp.backend.TestUsers;
+import skin.opp.backend.user.TermsService;
 import skin.opp.backend.user.UserService;
 
 /** 제품 목록·필터·상세·내 보유제품을 실제 PostgreSQL로 확인한다. 제품은 테스트 안에서만 만든다. Docker 없으면 건너뜀. */
@@ -42,6 +43,7 @@ class ProductIntegrationTest {
 
     @Autowired MockMvc mvc;
     @Autowired UserService userService;
+    @Autowired TermsService terms;
     @Autowired JdbcClient jdbc;
 
     private long userId;
@@ -55,7 +57,7 @@ class ProductIntegrationTest {
     }
 
     private long newUser() {
-        return userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "사용자", null, null)).getId();
+        return TestUsers.member(userService, terms, "사용자");
     }
 
     private RequestPostProcessor login(long id) {
