@@ -23,6 +23,7 @@ import skin.opp.backend.consult.ConsultDtos.CareTime;
 import skin.opp.backend.consult.ConsultDtos.ConcernKind;
 import skin.opp.backend.consult.ConsultDtos.ConsultRequest;
 import skin.opp.backend.consult.ConsultDtos.ConsultView;
+import skin.opp.backend.consult.ConsultDtos.FollowUpRequest;
 import skin.opp.backend.consult.ConsultDtos.IngredientView;
 import skin.opp.backend.consult.ConsultDtos.PairView;
 import skin.opp.backend.consult.ConsultDtos.PhaseView;
@@ -111,14 +112,54 @@ public class ConsultService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "관리 가능한 시간을 골라 주세요.");
         }
         if (request.redFlag()) {
-            long id = tx.execute(s -> insertConversation(userId, request, State.REFERRED));
+            long id = tx.execute(s -> insertConversation(userId, request, State.REFERRED, null));
             return get(userId, id);
         }
 
         ObjectNode analysis = analyze(userId, request);
         JsonNode routine = routineOrNull(userId, request, analysis);
-        long id = tx.execute(s -> {
-            long conversationId = insertConversation(userId, request, State.COMPLETED);
+        return get(userId, saveReport(userId, request, analysis, routine, null));
+    }
+
+    /** 리포트가 있는 가장 최근 상담(재방문 때 "지난번과 달라진 점" 질문에 씀). 없으면 404. */
+    public ConsultView latest(long userId) {
+        return jdbc.sql("""
+                SELECT c.id FROM conversations c JOIN care_reports r ON r.conversation_id = c.id
+                WHERE c.user_id = :u AND c.kind = 'CONSULT' AND c.state = 'COMPLETED'
+                ORDER BY c.created_at DESC, c.id DESC LIMIT 1
+                """).param("u", userId).query(Long.class).optional()
+                .map(id -> get(userId, id))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "이전 상담이 없어요."));
+    }
+
+    /**
+     * 후속 상담(시간이나 물품이 달라졌어요): 이전 상담의 고민·증상과 분석(Model A 결과)은 그대로 쓰고,
+     * 지금 가능한 관리 시간·제품·목표 기간으로 루틴(Model B)만 다시 만들어 새 상담으로 저장한다.
+     * 루틴 생성이 실패하면 아무것도 저장하지 않고 502.
+     */
+    public ConsultView followUp(long userId, long previousId, FollowUpRequest request) {
+        ConsultView previous = get(userId, previousId);
+        if (previous.report() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "리포트가 있는 상담만 이어서 할 수 있어요.");
+        }
+        ConsultRequest old = previous.answers();
+        ConsultRequest answers = new ConsultRequest(old.kind(), old.regions(), old.onset(), old.duration(),
+                old.severity(), old.change(), false, old.activities(), request.careTime(), request.products(),
+                request.targetDays());
+        JsonNode analysis = analysisOf(previousId);
+        JsonNode routine;
+        try {
+            routine = ai.routine(routinePayload(userId, answers, analysis));
+        } catch (AiException e) {
+            log.warn("consultation {} 후속 루틴 생성 실패: {} {}", previousId, e.code(), e.getMessage());
+            throw unavailable(e);
+        }
+        return get(userId, saveReport(userId, answers, analysis, routine, previousId));
+    }
+
+    private long saveReport(long userId, ConsultRequest request, JsonNode analysis, JsonNode routine, Long followsId) {
+        return tx.execute(s -> {
+            long conversationId = insertConversation(userId, request, State.COMPLETED, followsId);
             jdbc.sql("""
                     INSERT INTO care_reports (conversation_id, user_id, analysis, routine_plan)
                     VALUES (:c, :u, CAST(:analysis AS jsonb), CAST(:routine AS jsonb))
@@ -128,12 +169,16 @@ public class ConsultService {
                     .update();
             return conversationId;
         });
-        return get(userId, id);
+    }
+
+    private JsonNode analysisOf(long conversationId) {
+        return jdbc.sql("SELECT analysis::text FROM care_reports WHERE conversation_id = :c")
+                .param("c", conversationId).query(String.class).optional().map(json::readTree).orElseThrow();
     }
 
     public ConsultView get(long userId, long id) {
         return jdbc.sql("""
-                SELECT c.id, c.state, c.title, c.created_at, s.answers::text AS answers,
+                SELECT c.id, c.state, c.title, c.created_at, c.follows_id, s.answers::text AS answers,
                        r.analysis::text AS analysis, r.routine_plan::text AS routine_plan, r.applied_plan_id
                 FROM conversations c
                 JOIN consultation_summaries s ON s.conversation_id = c.id
@@ -147,7 +192,8 @@ public class ConsultService {
                         rs.getString("analysis") == null ? null : report(
                                 json.readTree(rs.getString("analysis")),
                                 rs.getString("routine_plan") == null ? null : json.readTree(rs.getString("routine_plan")),
-                                (Long) rs.getObject("applied_plan_id", Long.class))))
+                                (Long) rs.getObject("applied_plan_id", Long.class)),
+                        (Long) rs.getObject("follows_id", Long.class)))
                 .optional()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "상담을 찾을 수 없어요."));
     }
@@ -156,8 +202,7 @@ public class ConsultService {
     public ConsultView regenerateRoutine(long userId, long id) {
         ConsultView view = get(userId, id);
         if (view.report() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "리포트가 없는 상담이에요.");
-        JsonNode analysis = jdbc.sql("SELECT analysis::text FROM care_reports WHERE conversation_id = :c")
-                .param("c", id).query(String.class).optional().map(json::readTree).orElseThrow();
+        JsonNode analysis = analysisOf(id);
         JsonNode routine;
         try {
             routine = ai.routine(routinePayload(userId, view.answers(), analysis));
@@ -191,11 +236,12 @@ public class ConsultService {
         return plan;
     }
 
-    private long insertConversation(long userId, ConsultRequest request, State state) {
+    private long insertConversation(long userId, ConsultRequest request, State state, Long followsId) {
         long id = jdbc.sql("""
-                INSERT INTO conversations (user_id, kind, use_saved_profile, title, state)
-                VALUES (:u, 'CONSULT', TRUE, :title, :state) RETURNING id
+                INSERT INTO conversations (user_id, kind, use_saved_profile, title, state, follows_id)
+                VALUES (:u, 'CONSULT', TRUE, :title, :state, :follows) RETURNING id
                 """).param("u", userId).param("title", title(request)).param("state", state.name())
+                .param("follows", followsId)
                 .query(Long.class).single();
         jdbc.sql("""
                 INSERT INTO consultation_summaries (conversation_id, answers, red_flag)

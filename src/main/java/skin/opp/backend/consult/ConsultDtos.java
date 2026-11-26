@@ -68,6 +68,12 @@ public final class ConsultDtos {
         }
     }
 
+    /** 후속 상담: 고민·증상은 이전 상담 그대로, 지금 가능한 관리 시간·제품·목표 기간만 새로 받는다. */
+    public record FollowUpRequest(
+            @NotNull CareTime careTime,
+            List<Product> products,
+            @Min(0) @Max(365) int targetDays) {}
+
     public record PairView(List<String> regions, String observation, String cause, String solution, String confidence) {}
 
     public record IngredientView(String key, String labelKo, String inci) {}
@@ -85,7 +91,7 @@ public final class ConsultDtos {
             List<IngredientView> recommendedIngredients, List<IngredientView> cautionIngredients,
             RoutineView routine, Long appliedPlanId) {}
 
-    /** report는 REFERRED면 null */
+    /** report는 REFERRED면 null. followsId = 이어서 한 이전 상담(후속 상담일 때) */
     public record ConsultView(long id, State state, String title, ConsultRequest answers,
-                              OffsetDateTime createdAt, ReportView report) {}
+                              OffsetDateTime createdAt, ReportView report, Long followsId) {}
 }

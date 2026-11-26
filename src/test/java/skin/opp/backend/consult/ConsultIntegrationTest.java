@@ -284,4 +284,90 @@ class ConsultIntegrationTest {
                 .andExpect(status().isNotFound());
         mvc.perform(get("/api/consultations/{id}", id)).andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void latestReturnsNewestConsultationWithReport() throws Exception {
+        mvc.perform(get("/api/consultations/latest").with(login(userId))).andExpect(status().isNotFound());
+        ai.enqueue(Reply.json(200, ANALYZE)).enqueue(Reply.json(200, ROUTINE));
+        long id = json.readTree(create(request(false, "MORNING_EVENING")).andReturn().getResponse().getContentAsString())
+                .path("id").asLong();
+        // 위험 신호로 끝난 상담은 리포트가 없어 "지난번" 대상이 아니다.
+        create(request(true, null)).andExpect(status().isCreated());
+
+        mvc.perform(get("/api/consultations/latest").with(login(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.followsId").doesNotExist());
+    }
+
+    @Test
+    void followUpReusesAnalysisAndOnlyRegeneratesRoutine() throws Exception {
+        ai.enqueue(Reply.json(200, ANALYZE)).enqueue(Reply.json(200, ROUTINE));
+        long previous = json.readTree(create(request(false, "MORNING_EVENING")).andReturn().getResponse().getContentAsString())
+                .path("id").asLong();
+        ai.reset();
+        ai.enqueue(Reply.json(200, ROUTINE.replace("14일 루틴입니다.", "저녁만 가능한 루틴입니다.")));
+
+        String body = mvc.perform(post("/api/consultations/{id}/follow-ups", previous).with(login(userId)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"careTime\":\"MINIMAL\",\"products\":[\"ALL_IN_ONE\"],\"targetDays\":7}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.state").value("COMPLETED"))
+                .andExpect(jsonPath("$.followsId").value(previous))
+                .andExpect(jsonPath("$.answers.kind").value("FOLLICULITIS_SHAVING"))
+                .andExpect(jsonPath("$.answers.severity").value(3))
+                .andExpect(jsonPath("$.answers.careTime").value("MINIMAL"))
+                .andExpect(jsonPath("$.answers.products[0]").value("ALL_IN_ONE"))
+                .andExpect(jsonPath("$.answers.targetDays").value(7))
+                .andExpect(jsonPath("$.report.pairs[0].observation").value("턱에 붉은기가 보입니다"))
+                .andExpect(jsonPath("$.report.routine.summary").value("저녁만 가능한 루틴입니다."))
+                .andReturn().getResponse().getContentAsString();
+        long followUp = json.readTree(body).path("id").asLong();
+        assertThat(followUp).isNotEqualTo(previous);
+
+        // 분석(Model A)은 다시 부르지 않고 루틴(Model B)만 새 조건으로 부른다.
+        assertThat(ai.received).extracting(FakeAiServer.Received::path).containsExactly("/routine");
+        JsonNode b = sentTo("/routine");
+        assertThat(b.path("target_days").asInt()).isEqualTo(7);
+        assertThat(b.path("survey").path("military").path("care_time").asString()).isEqualTo("관리 시간 2분 이내");
+        assertThat(b.path("survey").path("military").path("hygiene_product_access").asString()).isEqualTo("올인원");
+        assertThat(b.path("analysis_report").path("cause_solution_pairs").get(0).path("cause_summary").asString())
+                .isEqualTo("면도 마찰이 영향을 줄 수 있습니다");
+
+        mvc.perform(get("/api/consultations/latest").with(login(userId)))
+                .andExpect(jsonPath("$.id").value(followUp));
+        // 이전 리포트는 당시 결과 그대로 남는다.
+        mvc.perform(get("/api/consultations/{id}", previous).with(login(userId)))
+                .andExpect(jsonPath("$.report.routine.summary").value("14일 루틴입니다."));
+    }
+
+    @Test
+    void followUpFailureSavesNothingAndNeedsReport() throws Exception {
+        ai.enqueue(Reply.json(200, ANALYZE)).enqueue(Reply.json(200, ROUTINE));
+        long previous = json.readTree(create(request(false, "MORNING_EVENING")).andReturn().getResponse().getContentAsString())
+                .path("id").asLong();
+        long referred = json.readTree(create(request(true, null)).andReturn().getResponse().getContentAsString())
+                .path("id").asLong();
+        String body = "{\"careTime\":\"EVENING_ONLY\",\"products\":[],\"targetDays\":0}";
+        long before = jdbc.sql("SELECT count(*) FROM conversations WHERE user_id = :u").param("u", userId).query(Long.class).single();
+
+        ai.enqueue(Reply.json(200, "{\"routine_plan\":{},\"internal_audit\":{\"gate_violations\":[\"x\"]}}"));
+        mvc.perform(post("/api/consultations/{id}/follow-ups", previous).with(login(userId)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.detail").exists());
+        mvc.perform(post("/api/consultations/{id}/follow-ups", referred).with(login(userId)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mvc.perform(post("/api/consultations/{id}/follow-ups", previous).with(login(userId)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"products\":[],\"targetDays\":0}"))
+                .andExpect(status().isBadRequest());
+        long other = userService.upsertFromKakao(new KakaoProfile(System.nanoTime(), "다른 사용자", null, null)).getId();
+        mvc.perform(post("/api/consultations/{id}/follow-ups", previous).with(login(other)).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNotFound());
+
+        assertThat(jdbc.sql("SELECT count(*) FROM conversations WHERE user_id = :u").param("u", userId).query(Long.class).single())
+                .isEqualTo(before);
+    }
 }
