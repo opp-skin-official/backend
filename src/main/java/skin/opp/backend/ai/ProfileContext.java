@@ -1,9 +1,11 @@
 package skin.opp.backend.ai;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -24,6 +26,12 @@ public class ProfileContext {
             "NO_FIXED_TIME", "정해진 세안 시간 없음");
 
     public record Environment(String training, String washing) {}
+
+    /** 채팅에 함께 보낼 최근 상담: analysis_report = Model A cause_solution_report, concern = 그 상담의 고민(Model A 값) */
+    public record LatestReport(JsonNode analysisReport, ObjectNode concern) {}
+
+    /** 이보다 오래된 리포트는 지금 피부와 다를 수 있어 채팅 맥락에 넣지 않는다. */
+    public static final int REPORT_CONTEXT_DAYS = 30;
 
     private final JdbcClient jdbc;
     private final ObjectMapper json;
@@ -55,6 +63,29 @@ public class ProfileContext {
                 .query((rs, i) -> new Environment(
                         TRAINING_LABEL.getOrDefault(rs.getString("outdoor_training"), rs.getString("outdoor_training")),
                         WASH_LABEL.getOrDefault(rs.getString("wash_time"), rs.getString("wash_time"))))
+                .optional().orElse(null);
+    }
+
+    /** 최근 {@link #REPORT_CONTEXT_DAYS}일 안의 가장 최근 상담 리포트. 없으면 null. */
+    public LatestReport latestReport(long userId) {
+        return jdbc.sql("""
+                SELECT r.analysis::text AS analysis, s.answers::text AS answers
+                FROM care_reports r JOIN consultation_summaries s ON s.conversation_id = r.conversation_id
+                WHERE r.user_id = :u AND r.created_at > now() - make_interval(days => :days)
+                ORDER BY r.created_at DESC, r.id DESC LIMIT 1
+                """).param("u", userId).param("days", REPORT_CONTEXT_DAYS)
+                .query((rs, i) -> {
+                    JsonNode report = json.readTree(rs.getString("analysis")).path("cause_solution_report");
+                    JsonNode a = json.readTree(rs.getString("answers"));
+                    ObjectNode concern = json.createObjectNode();
+                    if (a.path("kind").isString()) concern.put("kind", a.path("kind").asString().toLowerCase(Locale.ROOT));
+                    if (a.path("regions").isArray()) concern.set("regions", a.path("regions"));
+                    for (String f : List.of("onset", "duration", "change")) {
+                        if (a.path(f).isString()) concern.put(f, a.path(f).asString().toLowerCase(Locale.ROOT));
+                    }
+                    if (a.path("severity").isNumber()) concern.put("severity", a.path("severity").asInt());
+                    return new LatestReport(report.isObject() ? report : null, concern);
+                })
                 .optional().orElse(null);
     }
 

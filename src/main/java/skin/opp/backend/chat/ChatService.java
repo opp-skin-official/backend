@@ -116,6 +116,12 @@ public class ChatService {
         payload.put("user_message", message(questionId).content());
         if (useSavedProfile) {
             ObjectNode survey = profile.modelBSurvey(userId);
+            // 최근 상담이 있으면 그 결과와 고민을 함께 보내, 상담을 이어서 묻는 질문에 맞게 답하게 한다(명세 1.2).
+            ProfileContext.LatestReport report = profile.latestReport(userId);
+            if (report != null) {
+                if (report.analysisReport() != null) payload.set("analysis_report", report.analysisReport());
+                if (!report.concern().isEmpty()) survey.putArray("concerns").add(report.concern());
+            }
             if (!survey.isEmpty()) payload.set("survey", survey);
         }
         ArrayNode history = history(conversationId, questionId);
