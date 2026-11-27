@@ -65,7 +65,7 @@ erDiagram
 | **routine_items** | V6 | `id`, `care_plan_id`, `time_of_day`(MORNING / EVENING), `title`, `subtitle`, `sort_order` | |
 | **routine_checks** | V6 | `routine_item_id`, `check_date`, `checked_at` | PK(`routine_item_id`, `check_date`) |
 | **progress_records** | V7 | `id`, `user_id`, `record_date`, `perceived_change`, `skin_condition`, `memo`, `created_at`, `updated_at` | 하루 하나, unique(`user_id`, `record_date`) |
-| **products** | V8 | `id`, `sheet_key`(unique), `brand`, `name`, `category`, `volume`, `price`(≥0), `summary`, `recommendation`, `skin_fits`, `features`, `full_ingredients`, `image_url`, `px_available`, `active`, `created_at`, `updated_at` | PX 제품 |
+| **products** | V8 | `id`, `sheet_key`(unique), `brand`, `name`, `category`(CLEANSER / TONER / LOTION / ESSENCE / CREAM / SUNSCREEN / MASK_PACK), `volume`, `price`(≥0), `summary`, `recommendation`, `skin_fits`, `features`, `full_ingredients`, `image_url`, `px_available`, `active`, `created_at`, `updated_at` | PX 제품 |
 | **product_ingredients** | V8 | `product_id`, `sort_order`, `name_ko`, `inci` | 주요 성분. 궁합 점수는 이 INCI와 순서(앞일수록 가중치 큼)만 쓴다 |
 | **user_products** | V8 | `id`, `user_id`, `product_id`, `kind`(OWNED / INTEREST), `created_at` | unique(`user_id`, `product_id`, `kind`) |
 | **product_reviews** | V9 | `id`, `product_id`, `user_id`, `rating`(1~5), `content`, `skin_option`, `good_tags`, `bad_tags`, `created_at`, `updated_at` | 사용자당 제품 하나에 리뷰 하나 |
