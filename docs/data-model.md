@@ -77,6 +77,7 @@ erDiagram
 
 - 필수 약관 동의: 로그인한 사용자가 현재 버전(`TermsService.CURRENT_VERSION`)의 TERMS·PRIVACY에 동의하기 전에는 `/api/me`(조회·탈퇴)·`/api/me/terms`(동의)·`/api/ping` 말고는 403(`TermsInterceptor`). 약관 문구를 바꾸면 백엔드 버전과 프론트 `src/lib/terms.ts`의 `TERMS_VERSION`을 같이 올려 모두에게 다시 동의받는다.
 - 회원 탈퇴(`DELETE /api/me`)는 사용자 행과 위 표의 모든 기록(리뷰 포함)을 **바로 지우고** 그 사용자의 모든 로그인 세션(`spring_session`)도 지운다. 되돌릴 수 없다. 외래 키가 CASCADE가 아니라 `AccountDeletionService`가 자식 테이블부터 지우며, users를 참조하는 테이블이 새로 생기면 거기에 넣어야 한다(빠지면 `AccountDeletionIntegrationTest`가 실패).
+- 맞춤 추천(`/api/products/recommendations`)에서는 리포트 주의 성분(향료·고함량 변성알코올·설페이트·에센셜 오일·고함량 각질제거 산, Model A `key` 또는 `label_ko`로 판단)이나 등록한 주의 성분이 든 제품을 **뺀다**. 제품 목록에서는 그대로 보이고 점수만 낮다.
 - 제품 추천(궁합 점수)은 테이블이 없다. 요청 때마다 최신 설문 유형 + 리포트 `analysis.ingredient_profile` + `skin_alerts` + `product_ingredients`로 계산한다(`MatchScorer`, 성분 규칙은 `resources/rules/ingredient_rules.csv`).
 - 성분·조합 규칙은 테이블이 아니라 CSV다(4.5의 `ingredient_rules`·`combo_rules`는 구상). 지금 쓰는 것은 성분 규칙 중 INCI가 있는 "성분" 행뿐이다.
 - API는 운영이 아닌 환경의 Swagger(`/swagger-ui/index.html`)가 맞다. 5절 표는 처음 구상이다.

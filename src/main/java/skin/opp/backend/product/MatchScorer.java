@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import skin.opp.backend.product.IngredientRules.Kind;
 import skin.opp.backend.product.IngredientRules.Rule;
 
@@ -15,6 +16,7 @@ import skin.opp.backend.product.IngredientRules.Rule;
  * <ul>
  *   <li>S_baumann (−0.5~1): 사용자 유형 글자의 도움·주의 성분(성분 규칙 시트)이 제품 성분에 얼마나 앞쪽에 들어 있는지</li>
  *   <li>S_concern (0~1): 최근 리포트(Model A)의 추천 성분 점수와 제품 성분의 가중 코사인 유사도. 리포트 주의 성분이 있으면 절반</li>
+ *   <li>리포트 주의 성분이나 등록한 주의 성분이 든 제품은 {@link Result#avoid()}: 맞춤 추천 목록에서 뺀다(RecommendationService)</li>
  *   <li>P_allergen: 등록한 주의(알레르기) 성분과 정확히 일치하면 60</li>
  * </ul>
  * 성분 순서 가중치 w_i = 1 / log2(i + 2) (i = 0부터, 앞쪽일수록 고함량).
@@ -36,11 +38,40 @@ public final class MatchScorer {
             "alcohol denat", "alcohol denat.",
             "centella asiatica leaf extract", "centella asiatica extract");
 
-    /** Model A caution_ingredients 키 중 INCI로 바로 맞출 수 있는 것 (나머지는 그룹이라 아직 못 맞춤) */
-    static final Map<String, List<String>> CAUTION_KEY_INCI = Map.of(
-            "synthetic_fragrance", List.of("fragrance"),
-            "high_alcohol_denat", List.of("alcohol denat."),
-            "sulfate_surfactant", List.of("sodium lauryl sulfate", "sodium laureth sulfate", "ammonium lauryl sulfate"));
+    /** "고함량" 주의 성분은 이 순번 안(앞쪽 10개)에 있을 때만 본다. 뒤쪽은 소량(pH 조절 등)이다. */
+    static final int HIGH_CONTENT_RANGE = 10;
+
+    /** 에센셜 오일로 보는 식물(INCI에 이 이름과 "oil"이 함께 있으면) */
+    private static final List<String> ESSENTIAL_OIL_PLANTS = List.of(
+            "lavandula", "melaleuca", "eucalyptus", "rosmarinus", "mentha", "citrus", "cananga", "pelargonium",
+            "rosa damascena", "cymbopogon", "salvia", "juniperus", "cupressus", "origanum", "thymus", "cinnamomum",
+            "eugenia caryophyllus", "santalum", "boswellia", "pogostemon", "anthemis nobilis", "chamomilla recutita",
+            "litsea", "abies", "pinus", "cedrus", "commiphora", "vetiveria", "ylang");
+
+    /**
+     * 리포트 주의 성분 묶음. Model A의 key나 한글 이름(label_ko)에 든 낱말로 알아보고, 제품 INCI와 맞춘다.
+     * highOnly면 고함량(앞쪽 {@link #HIGH_CONTENT_RANGE}개)일 때만 해당한다.
+     */
+    private record CautionGroup(Set<String> keys, List<String> labelWords, Predicate<String> inci, boolean highOnly) {
+        boolean covers(Caution c) {
+            if (c.key() != null && keys.contains(c.key())) return true;
+            String label = c.labelKo() == null ? "" : c.labelKo().replace(" ", "");
+            return labelWords.stream().anyMatch(w -> label.contains(w.replace(" ", "")));
+        }
+    }
+
+    private static final List<CautionGroup> CAUTION_GROUPS = List.of(
+            new CautionGroup(Set.of("synthetic_fragrance"), List.of("향료"), "fragrance"::equals, false),
+            new CautionGroup(Set.of("high_alcohol_denat"), List.of("알코올"),
+                    Set.of("alcohol denat.", "alcohol", "ethanol", "sd alcohol 40")::contains, true),
+            new CautionGroup(Set.of("sulfate_surfactant"), List.of("설페이트"),
+                    Set.of("sodium lauryl sulfate", "sodium laureth sulfate", "ammonium lauryl sulfate",
+                            "ammonium laureth sulfate", "sodium coco-sulfate", "sodium myreth sulfate")::contains, false),
+            new CautionGroup(Set.of(), List.of("에센셜 오일", "에센셜오일", "정유"),
+                    inci -> inci.contains("oil") && ESSENTIAL_OIL_PLANTS.stream().anyMatch(inci::contains), false),
+            new CautionGroup(Set.of(), List.of("각질제거", "AHA", "BHA"),
+                    Set.of("glycolic acid", "lactic acid", "mandelic acid", "salicylic acid", "malic acid",
+                            "tartaric acid", "betaine salicylate")::contains, true));
 
     /** 제품의 성분 하나 (sort_order 순서) */
     public record ProductIngredient(String nameKo, String inci) {}
@@ -48,12 +79,23 @@ public final class MatchScorer {
     /** 리포트 추천 성분 (Model A ingredient_profile.recommended_ingredients) */
     public record Recommended(String inci, String labelKo, double score) {}
 
-    /** 점수를 낼 사람의 정보. baumann이 null이면 점수 없음 */
-    public record Profile(String baumann, List<Recommended> recommended, List<String> reportCautionKeys, List<String> alerts) {}
+    /** 리포트 주의 성분 (Model A ingredient_profile.caution_ingredients의 key, label_ko) */
+    public record Caution(String key, String labelKo) {}
 
-    /** score: 0~99 또는 null(바우만 없음). reasons = 좋은 점, cautions = 주의할 점 */
-    public record Result(Integer score, double baumannScore, double concernScore, boolean allergen,
-                         List<String> reasons, List<String> cautions) {}
+    /** 점수를 낼 사람의 정보. baumann이 null이면 점수 없음 */
+    public record Profile(String baumann, List<Recommended> recommended, List<Caution> reportCautions, List<String> alerts) {}
+
+    /**
+     * score: 0~99 또는 null(바우만 없음). reasons = 좋은 점, cautions = 주의할 점.
+     * allergen = 등록한 주의 성분 포함, reportCaution = 리포트 주의 성분 포함.
+     */
+    public record Result(Integer score, double baumannScore, double concernScore, boolean allergen, boolean reportCaution,
+                         List<String> reasons, List<String> cautions) {
+        /** 맞춤 추천에서 빼야 하는 제품 (리포트·사용자가 피하라고 한 성분이 들어 있음) */
+        public boolean avoid() {
+            return allergen || reportCaution;
+        }
+    }
 
     private final IngredientRules rules;
 
@@ -97,11 +139,16 @@ public final class MatchScorer {
             }
         }
         double sConcern = productNorm == 0 || reportNorm == 0 ? 0 : dot / (Math.sqrt(productNorm) * Math.sqrt(reportNorm));
-        for (String key : profile.reportCautionKeys()) {
-            for (String inci : CAUTION_KEY_INCI.getOrDefault(key, List.of())) {
-                int i = incis.indexOf(inci);
-                if (i >= 0) {
-                    sConcern *= 0.5;
+        boolean reportCaution = false;
+        Set<CautionGroup> hitGroups = new LinkedHashSet<>();
+        for (Caution c : profile.reportCautions()) {
+            for (CautionGroup group : CAUTION_GROUPS) {
+                if (!group.covers(c) || hitGroups.contains(group)) continue;
+                int limit = group.highOnly() ? Math.min(HIGH_CONTENT_RANGE, incis.size()) : incis.size();
+                for (int i = 0; i < limit; i++) {
+                    if (!group.inci().test(incis.get(i))) continue;
+                    if (hitGroups.add(group)) sConcern *= 0.5;
+                    reportCaution = true;
                     cautions.add("리포트에서 주의가 필요하다고 한 성분 " + ingredients.get(i).nameKo());
                 }
             }
@@ -122,7 +169,7 @@ public final class MatchScorer {
 
         Integer score = profile.baumann() == null ? null
                 : (int) Math.round(clamp(50 + 30 * sBaumann + 20 * sConcern - (allergen ? ALLERGEN_PENALTY : 0), 0, 99));
-        return new Result(score, sBaumann, sConcern, allergen,
+        return new Result(score, sBaumann, sConcern, allergen, reportCaution,
                 reasons.stream().distinct().limit(MAX_REASONS).toList(), cautions.stream().distinct().toList());
     }
 
