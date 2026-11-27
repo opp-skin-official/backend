@@ -47,6 +47,7 @@
   - `final.markdown`은 실천 팁까지 담긴 전체 답변(마크다운). `chat_response.reply`는 앞뒤 문장만, 팁은 `action_tips`로 따로 온다.
   - 우리는 `final.markdown`을 답변으로 저장하고 메시지에 `format: "markdown"`을 붙인다(없으면 예전처럼 `reply`, `format: "text"`). 실측: delta는 빈 줄이 빠져 오고 `replace_reply: true`라 화면은 done의 내용으로 바꾼다.
   - `tool_call`·`tool_result`·`meta`는 프론트로 넘기지 않는다.
+  - 맥락: "저장된 피부 정보 사용"이 켜져 있으면 `survey`(바우만, 주의 성분, 복무 환경)와 함께, 최근 30일 안의 가장 최근 상담이 있으면 그 `cause_solution_report`를 `analysis_report`로, 그 상담의 고민을 `survey.concerns`로 보낸다(`ProfileContext.latestReport`).
   - 요청에 `attachments`(최대 4개, 각 800자), `enable_tools`(기본 true)를 쓸 수 있다(아직 안 씀).
 - `/routine`: `routine_plan` = `mode`, `target_days`, `summary`, `phases[]`(`phase_label`, `day_range`, `focus`, `morning[]`, `evening[]`, `post_activity[]`, `checkpoint`), `evidence_ids`, `refer_to_clinician`, `notice`, `referral_notice`
   - v6.3: 각 단계에 같은 순서의 `morning_steps[]`·`evening_steps[]`·`post_activity_steps[]`(`{text, step_type}`)가 함께 온다. `step_type` 10종: `cleanser`, `toner`, `serum`, `moisturizer`, `sunscreen`, `spot_care`, `shaving_care`, `lip_hand_care`, `mask_pack`(PX 제품 카드 연결용), `habit`(제품 아님). 아직 안 씀.

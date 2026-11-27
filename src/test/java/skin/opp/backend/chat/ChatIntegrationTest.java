@@ -314,4 +314,58 @@ class ChatIntegrationTest {
         mvc.perform(get("/api/conversations").with(login(other))).andExpect(jsonPath("$.length()").value(0));
         assertThat(ai.received).isEmpty();
     }
+
+    /** 상담 리포트 하나를 daysAgo일 전에 만든 것으로 넣는다. */
+    private void consultReport(int daysAgo, String cause) {
+        long c = jdbc.sql("""
+                INSERT INTO conversations (user_id, kind, title, state) VALUES (:u, 'CONSULT', '상담', 'COMPLETED') RETURNING id
+                """).param("u", userId).query(Long.class).single();
+        jdbc.sql("""
+                INSERT INTO consultation_summaries (conversation_id, answers, red_flag) VALUES (:c, CAST(:a AS jsonb), false)
+                """).param("c", c).param("a", """
+                {"kind":"FOLLICULITIS_SHAVING","regions":["CHIN"],"onset":"POST_PRODUCT_SHAVE","duration":"ACUTE_DAYS",
+                 "severity":3,"change":"WORSENED","redFlag":false,"targetDays":14}""").update();
+        jdbc.sql("""
+                INSERT INTO care_reports (conversation_id, user_id, analysis, created_at)
+                VALUES (:c, :u, CAST(:a AS jsonb), now() - make_interval(days => :d))
+                """).param("c", c).param("u", userId).param("d", daysAgo).param("a", """
+                {"cause_solution_report":{"schema_version":"cause_solution.v1","cause_solution_pairs":[
+                  {"regions":["CHIN"],"cause_summary":"%s","solution_action":"결 방향으로 면도"}],"refer_to_clinician":false},
+                 "internal_audit":{"gate_violations":[]}}""".formatted(cause)).update();
+    }
+
+    @Test
+    void recentConsultationReportIsSentAsContext() throws Exception {
+        consultReport(40, "오래된 원인");
+        consultReport(2, "면도 마찰");
+        ai.enqueue(Reply.sse(finalEvent("답변", "[]")));
+        long id = createConversation(null);
+
+        send(id, "지난번 상담한 턱은 어떻게 관리해요?");
+
+        JsonNode sent = lastRequestToAi();
+        assertThat(sent.path("analysis_report").path("cause_solution_pairs").get(0).path("cause_summary").asString())
+                .isEqualTo("면도 마찰");
+        assertThat(sent.path("analysis_report").has("internal_audit")).isFalse();
+        JsonNode concern = sent.path("survey").path("concerns").get(0);
+        assertThat(concern.path("kind").asString()).isEqualTo("folliculitis_shaving");
+        assertThat(concern.path("regions").get(0).asString()).isEqualTo("CHIN");
+        assertThat(concern.path("onset").asString()).isEqualTo("post_product_shave");
+        assertThat(concern.path("severity").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void oldReportOrProfileOffSendsNoReport() throws Exception {
+        consultReport(40, "오래된 원인");
+        ai.enqueue(Reply.sse(finalEvent("답변", "[]")));
+        send(createConversation(null), "질문");
+        assertThat(lastRequestToAi().has("analysis_report")).isFalse();
+        assertThat(lastRequestToAi().path("survey").has("concerns")).isFalse();
+
+        consultReport(1, "최근 원인");
+        ai.enqueue(Reply.sse(finalEvent("답변", "[]")));
+        send(createConversation("{\"useSavedProfile\":false}"), "질문");
+        assertThat(lastRequestToAi().has("analysis_report")).isFalse();
+        assertThat(lastRequestToAi().has("survey")).isFalse();
+    }
 }
