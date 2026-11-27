@@ -45,11 +45,13 @@ public class ChatController {
 
     private final ChatService service;
     private final AiQuota quota;
+    private final ChatGuard guard;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ChatController(ChatService service, AiQuota quota) {
+    public ChatController(ChatService service, AiQuota quota, ChatGuard guard) {
         this.service = service;
         this.quota = quota;
+        this.guard = guard;
     }
 
     @PostMapping
@@ -80,7 +82,8 @@ public class ChatController {
                            @Valid @RequestBody MessageRequest request, HttpServletResponse response) {
         long userId = userId(principal);
         boolean useSavedProfile = service.requireOwned(userId, id);
-        quota.acquire(userId, AiQuota.Kind.CHAT); // 넘으면 429 (스트림을 열기 전)
+        // 넘으면 429 (스트림을 열기 전). 가드레일에 걸려 AI를 부르지 않을 질문은 세지 않는다.
+        if (guard.checkInput(request.content()) == ChatGuard.Input.OK) quota.acquire(userId, AiQuota.Kind.CHAT);
         MessageView question = service.saveUserMessage(id, request.content());
 
         // 앞단 nginx가 응답을 모았다가 한 번에 보내지 않게 한다(서버 설정과 상관없이 글자 조각이 바로 흐름).
