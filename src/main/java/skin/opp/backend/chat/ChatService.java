@@ -45,12 +45,14 @@ public class ChatService {
     private final ObjectMapper json;
     private final JederoClient ai;
     private final ProfileContext profile;
+    private final ChatGuard guard;
 
-    public ChatService(JdbcClient jdbc, ObjectMapper json, JederoClient ai, ProfileContext profile) {
+    public ChatService(JdbcClient jdbc, ObjectMapper json, JederoClient ai, ProfileContext profile, ChatGuard guard) {
         this.jdbc = jdbc;
         this.json = json;
         this.ai = ai;
         this.profile = profile;
+        this.guard = guard;
     }
 
     @Transactional
@@ -112,8 +114,18 @@ public class ChatService {
      */
     public MessageView answer(long userId, long conversationId, long questionId, boolean useSavedProfile,
                               Consumer<String> onDelta) {
+        String question = message(questionId).content();
+        ChatGuard.Input input = guard.checkInput(question);
+        if (input != ChatGuard.Input.OK) {
+            // AI를 부르지 않고 정해진 안내로 답한다. 질문도 BLOCKED로 바꿔 이후 대화 맥락에서 뺀다.
+            log.warn("conversation {} 질문 차단: {}", conversationId, input);
+            jdbc.sql("UPDATE conversation_messages SET status = 'BLOCKED' WHERE id = :id").param("id", questionId).update();
+            ObjectNode blocked = json.createObjectNode().put("format", "markdown").put("guard", input.name());
+            return saveAssistant(conversationId, Status.BLOCKED, guard.reply(input), blocked);
+        }
         ObjectNode payload = json.createObjectNode();
-        payload.put("user_message", message(questionId).content());
+        // AI 서버는 해외에 있으므로 개인정보는 가려서 보낸다(저장된 질문은 그대로).
+        payload.put("user_message", guard.maskPersonalInfo(question));
         if (useSavedProfile) {
             ObjectNode survey = profile.modelBSurvey(userId);
             // 최근 상담이 있으면 그 결과와 고민을 함께 보내, 상담을 이어서 묻는 질문에 맞게 답하게 한다(명세 1.2).
@@ -136,6 +148,14 @@ public class ChatService {
         JsonNode response = outcome.chatResponse();
         String reply = response.path("reply").asString("").strip();
         if (reply.isEmpty() && outcome.markdown() == null) throw new AiException(AiException.Code.INTERNAL, 200, "빈 답변");
+        List<String> hits = guard.checkOutput(outcome.markdown() != null ? outcome.markdown() : reply);
+        if (!hits.isEmpty()) {
+            log.warn("conversation {} 답변 차단(우리 가드레일): {}", conversationId, hits);
+            ObjectNode blocked = json.createObjectNode().put("refer_to_clinician", true);
+            ArrayNode rules = blocked.putArray("guard_output");
+            hits.forEach(rules::add);
+            return saveAssistant(conversationId, Status.BLOCKED, BLOCKED_REPLY, blocked);
+        }
         ObjectNode extra = json.createObjectNode();
         // v6.3: 저장은 final.markdown 기준(실천 팁 포함 전체 답변). 없으면 이전처럼 reply
         extra.put("format", outcome.markdown() != null ? "markdown" : "text");
@@ -159,7 +179,7 @@ public class ChatService {
         return message(id);
     }
 
-    /** 이번 질문 앞의 최근 대화(안전 검사로 바뀐 답변은 빼고) */
+    /** 이번 질문 앞의 최근 대화(안전 검사로 막힌 질문·답변은 빼고, 개인정보는 가려서) */
     private ArrayNode history(long conversationId, long beforeMessageId) {
         List<MessageView> recent = new ArrayList<>(jdbc.sql("""
                 SELECT * FROM conversation_messages
@@ -170,7 +190,8 @@ public class ChatService {
         ArrayNode history = json.createArrayNode();
         for (int i = recent.size() - 1; i >= 0; i--) {
             MessageView m = recent.get(i);
-            history.addObject().put("role", m.role() == Role.USER ? "user" : "assistant").put("content", m.content());
+            history.addObject().put("role", m.role() == Role.USER ? "user" : "assistant")
+                    .put("content", guard.maskPersonalInfo(m.content()));
         }
         return history;
     }

@@ -48,6 +48,7 @@
   - 우리는 `final.markdown`을 답변으로 저장하고 메시지에 `format: "markdown"`을 붙인다(없으면 예전처럼 `reply`, `format: "text"`). 실측: delta는 빈 줄이 빠져 오고 `replace_reply: true`라 화면은 done의 내용으로 바꾼다.
   - `tool_call`·`tool_result`·`meta`는 프론트로 넘기지 않는다.
   - 맥락: "저장된 피부 정보 사용"이 켜져 있으면 `survey`(바우만, 주의 성분, 복무 환경)와 함께, 최근 30일 안의 가장 최근 상담이 있으면 그 `cause_solution_report`를 `analysis_report`로, 그 상담의 고민을 `survey.concerns`로 보낸다(`ProfileContext.latestReport`).
+  - 우리 쪽 가드레일(`ChatGuard`, 규칙 기반): 프롬프트 인젝션·위급 신호(자해 등) 질문은 AI를 부르지 않고 정해진 안내로 답한다(호출 횟수 미차감, 질문·답 모두 BLOCKED라 맥락에서 빠짐, 답 `payload.guard`에 사유). 전화번호·주민번호·이메일·군번·계좌번호는 가려서 보낸다(저장은 원문). 답변에 진단 단정·처방·전문의약품 사용 권유·지시문 노출이 있으면 `BLOCKED_REPLY`로 바꾼다(`payload.guard_output`). 피부와 무관한 질문의 범위 제한은 모델 쪽 지시문에서 할 일.
   - 요청에 `attachments`(최대 4개, 각 800자), `enable_tools`(기본 true)를 쓸 수 있다(아직 안 씀).
 - `/routine`: `routine_plan` = `mode`, `target_days`, `summary`, `phases[]`(`phase_label`, `day_range`, `focus`, `morning[]`, `evening[]`, `post_activity[]`, `checkpoint`), `evidence_ids`, `refer_to_clinician`, `notice`, `referral_notice`
   - v6.3: 각 단계에 같은 순서의 `morning_steps[]`·`evening_steps[]`·`post_activity_steps[]`(`{text, step_type}`)가 함께 온다. `step_type` 10종: `cleanser`, `toner`, `serum`, `moisturizer`, `sunscreen`, `spot_care`, `shaving_care`, `lip_hand_care`, `mask_pack`(PX 제품 카드 연결용), `habit`(제품 아님). 아직 안 씀.
