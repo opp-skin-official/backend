@@ -89,6 +89,12 @@ class AccountDeletionIntegrationTest {
         }
         long qna = jdbc.sql("INSERT INTO conversations (user_id, kind) VALUES (:u, 'QNA') RETURNING id").param("u", u).query(Long.class).single();
         jdbc.sql("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (:c, 'USER', '질문')").param("c", qna).update();
+        long answer = jdbc.sql("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (:c, 'ASSISTANT', '답변') RETURNING id")
+                .param("c", qna).query(Long.class).single();
+        jdbc.sql("INSERT INTO ai_content_reports (user_id, conversation_id, message_id, reason) VALUES (:u, :c, :m, 'OFFENSIVE')")
+                .param("u", u).param("c", qna).param("m", answer).update();
+        jdbc.sql("INSERT INTO ai_content_reports (user_id, conversation_id, reason) VALUES (:u, :c, 'MEDICAL')")
+                .param("u", u).param("c", first).update();
 
         // 다른 기기의 로그인 세션
         String id = UUID.randomUUID().toString();

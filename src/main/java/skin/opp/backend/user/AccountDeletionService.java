@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 회원 탈퇴: 사용자와 그 사람의 모든 기록(설문, 상담·채팅, 리포트, 관리 계획·체크, 경과, 제품·리뷰, 주의 성분, AI 호출 기록)을
+ * 회원 탈퇴: 사용자와 그 사람의 모든 기록(설문, 상담·채팅, 리포트, 관리 계획·체크, 경과, 제품·리뷰, 주의 성분, AI 호출 기록, AI 신고)을
  * 바로 지우고, 다른 기기의 로그인 세션도 끊는다. 되돌릴 수 없다.
  * 외래 키가 ON DELETE CASCADE가 아니라서 자식 테이블부터 지운다. users를 참조하는 테이블이 새로 생기면
  * {@link #DIRECT_TABLES} 또는 아래 순서에 넣어야 한다(AccountDeletionIntegrationTest가 빠진 테이블을 잡는다).
@@ -17,7 +17,7 @@ public class AccountDeletionService {
     /** user_id로 바로 지우는 테이블 (다른 테이블이 참조하지 않음) */
     static final List<String> DIRECT_TABLES = List.of(
             "consents", "skin_type_assessments", "service_environments", "skin_alerts",
-            "progress_records", "user_products", "product_reviews", "ai_calls");
+            "progress_records", "user_products", "product_reviews", "ai_calls", "ai_content_reports");
 
     /** 순서가 있어 따로 지우는 테이블 */
     static final List<String> ORDERED_TABLES = List.of("care_reports", "conversations", "care_plans");
