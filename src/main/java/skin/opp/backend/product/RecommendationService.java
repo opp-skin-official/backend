@@ -11,6 +11,7 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 import skin.opp.backend.ai.ProfileContext;
+import skin.opp.backend.product.MatchScorer.Caution;
 import skin.opp.backend.product.MatchScorer.ProductIngredient;
 import skin.opp.backend.product.MatchScorer.Profile;
 import skin.opp.backend.product.MatchScorer.Recommended;
@@ -24,6 +25,7 @@ import tools.jackson.databind.ObjectMapper;
 /**
  * 맞춤 제품 추천: 피부 유형(최신 설문) + 상담 리포트의 추천·주의 성분 + 등록한 주의 성분으로 궁합 점수를 매긴다.
  * 점수 계산은 MatchScorer. 제품 성분은 product_ingredients(INCI, sort_order 순)만 쓴다.
+ * 리포트 주의 성분이나 등록한 주의 성분이 든 제품은 추천에서 뺀다(제품 목록에서는 낮은 점수로 그대로 보인다).
  */
 @Service
 public class RecommendationService {
@@ -56,6 +58,7 @@ public class RecommendationService {
         List<Recommendation> items = new ArrayList<>();
         for (ProductSummary product : products) {
             Result r = results.get(product.id());
+            if (r.avoid()) continue;
             items.add(new Recommendation(product.withMatchScore(r.score()), r.score(), r.reasons(), r.cautions()));
         }
         items.sort(Comparator.comparing((Recommendation r) -> r.score() == null ? -1 : r.score()).reversed());
@@ -67,7 +70,7 @@ public class RecommendationService {
     Profile profile(long userId, Long consultationId) {
         JsonNode ingredientProfile = ingredientProfile(userId, consultationId);
         List<Recommended> recommended = new ArrayList<>();
-        List<String> cautionKeys = new ArrayList<>();
+        List<Caution> cautions = new ArrayList<>();
         for (JsonNode n : ingredientProfile.path("recommended_ingredients")) {
             if (n.path("inci").isString()) {
                 recommended.add(new Recommended(n.path("inci").asString(), n.path("label_ko").asString(n.path("inci").asString()),
@@ -75,9 +78,11 @@ public class RecommendationService {
             }
         }
         for (JsonNode n : ingredientProfile.path("caution_ingredients")) {
-            if (n.path("key").isString()) cautionKeys.add(n.path("key").asString());
+            if (n.path("key").isString() || n.path("label_ko").isString()) {
+                cautions.add(new Caution(n.path("key").asString(null), n.path("label_ko").asString(null)));
+            }
         }
-        return new Profile(profile.baumann(userId), recommended, cautionKeys, profile.alerts(userId));
+        return new Profile(profile.baumann(userId), recommended, cautions, profile.alerts(userId));
     }
 
     /** 주어진 제품들의 점수 (제품 id → 결과). 주요 성분이 없는 제품도 결과가 있다. */

@@ -125,35 +125,34 @@ class RecommendationIntegrationTest {
     }
 
     @Test
-    void skinTypeAndReportOrderProductsWithReasons() throws Exception {
+    void skinTypeAndReportOrderProductsWithReasonsAndLeaveOutReportCautions() throws Exception {
         skinType("OSNT-L");
         report("Centella Asiatica Extract", "synthetic_fragrance");
 
         JsonNode items = recommendations("").path("items");
 
-        assertThat(items.get(0).path("product").path("id").asLong()).isEqualTo(soothing);
-        assertThat(items.get(1).path("product").path("id").asLong()).isEqualTo(plain);
-        assertThat(items.get(2).path("product").path("id").asLong()).isEqualTo(harsh);
+        // 향 토너(향료)는 리포트가 피하라고 한 성분이 있어 추천에서 빠진다.
+        assertThat(items).extracting(i -> i.path("product").path("id").asLong()).containsExactly(soothing, plain);
         // 50 + 30·1(판테놀·병풀 도움) + 20·cos([1, 0.63, 0.5]·[0, 0.9, 0]) = 50 + 30 + 9.8 → 90
         assertThat(items.get(0).path("score").asInt()).isEqualTo(90);
         assertThat(items.get(1).path("score").asInt()).isEqualTo(50);
-        assertThat(items.get(2).path("score").asInt()).isLessThan(50);
         assertThat(items.get(0).path("reasons").toString()).contains("판테놀: 진정과 보습", "리포트 추천 성분 추천");
-        assertThat(items.get(2).path("cautions").toString()).contains("주의가 필요한 성분 향료", "리포트에서 주의가 필요하다고 한 성분 향료");
+
+        // 제품 목록에서는 그대로 보이고 점수만 낮다.
+        mvc.perform(get("/api/products?sort=RECOMMENDED").with(login(userId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == %d)].matchScore".formatted(harsh)).value(org.hamcrest.Matchers.contains(
+                        org.hamcrest.Matchers.lessThan(50))));
     }
 
     @Test
-    void registeredAlertPushesProductDown() throws Exception {
+    void registeredAlertLeavesProductOut() throws Exception {
         skinType("OSNT-L");
         jdbc.sql("INSERT INTO skin_alerts (user_id, target) VALUES (:u, '판테놀')").param("u", userId).update();
 
         JsonNode items = recommendations("").path("items");
 
-        JsonNode soothingItem = null;
-        for (JsonNode i : items) if (i.path("product").path("id").asLong() == soothing) soothingItem = i;
-        assertThat(soothingItem).isNotNull();
-        assertThat(soothingItem.path("score").asInt()).isEqualTo(20); // 50 + 30 − 60
-        assertThat(soothingItem.path("cautions").get(0).asString()).isEqualTo("등록한 주의 성분 판테놀 포함");
+        assertThat(items).extracting(i -> i.path("product").path("id").asLong()).doesNotContain(soothing);
         assertThat(items.get(0).path("product").path("id").asLong()).isEqualTo(plain);
     }
 

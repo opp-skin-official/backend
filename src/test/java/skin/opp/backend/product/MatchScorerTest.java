@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.within;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import skin.opp.backend.product.MatchScorer.ProductIngredient;
+import skin.opp.backend.product.MatchScorer.Caution;
 import skin.opp.backend.product.MatchScorer.Profile;
 import skin.opp.backend.product.MatchScorer.Recommended;
 import skin.opp.backend.product.MatchScorer.Result;
@@ -97,12 +98,46 @@ class MatchScorerTest {
     void reportCautionKeyHalvesConcernScore() {
         Profile clean = new Profile("OSNT", List.of(new Recommended("Panthenol", "판테놀", 0.9)), List.of(), List.of());
         Profile withCaution = new Profile("OSNT", List.of(new Recommended("Panthenol", "판테놀", 0.9)),
-                List.of("synthetic_fragrance"), List.of());
+                List.of(new Caution("synthetic_fragrance", "인공 향료")), List.of());
         List<ProductIngredient> product = List.of(ing("판테놀", "Panthenol"), ing("향료", "Fragrance"));
 
         assertThat(scorer.score(product, withCaution).concernScore())
                 .isCloseTo(scorer.score(product, clean).concernScore() / 2, within(1e-9));
         assertThat(scorer.score(product, withCaution).cautions()).anyMatch(c -> c.contains("리포트에서 주의가 필요하다고 한 성분 향료"));
+        assertThat(scorer.score(product, withCaution).avoid()).isTrue();
+        assertThat(scorer.score(product, clean).avoid()).isFalse();
+    }
+
+    private Result withReportCaution(String key, String label, ProductIngredient... ingredients) {
+        return scorer.score(List.of(ingredients), new Profile("OSNT", List.of(), List.of(new Caution(key, label)), List.of()));
+    }
+
+    @Test
+    void reportCautionGroupsAreRecognizedByKeyOrKoreanLabel() {
+        // 키로
+        assertThat(withReportCaution("high_alcohol_denat", null, ing("변성알코올", "Alcohol Denat.")).avoid()).isTrue();
+        assertThat(withReportCaution("sulfate_surfactant", null, ing("소듐라우릴설페이트", "Sodium Lauryl Sulfate")).avoid()).isTrue();
+        // 키를 몰라도 한글 이름으로 (화면 문구: 고농축 에센셜 오일, 고함량 각질제거 산)
+        assertThat(withReportCaution("unknown_key", "고농축 에센셜 오일",
+                ing("정제수", "Water"), ing("라벤더오일", "Lavandula Angustifolia (Lavender) Oil")).avoid()).isTrue();
+        assertThat(withReportCaution(null, "고함량 각질제거 산", ing("글라이콜릭애씨드", "Glycolic Acid")).avoid()).isTrue();
+        assertThat(withReportCaution(null, "인공 향료", ing("향료", "Parfum")).cautions())
+                .contains("리포트에서 주의가 필요하다고 한 성분 향료");
+    }
+
+    @Test
+    void reportCautionDoesNotCatchHarmlessLookalikes() {
+        // 식물성 오일은 에센셜 오일이 아니다
+        assertThat(withReportCaution(null, "고농축 에센셜 오일", ing("호호바오일", "Simmondsia Chinensis (Jojoba) Seed Oil")).avoid()).isFalse();
+        // "고함량" 묶음은 뒤쪽(소량) 성분이면 해당 없음: 11번째 젖산, 11번째 알코올
+        ProductIngredient[] tail = new ProductIngredient[11];
+        for (int i = 0; i < 10; i++) tail[i] = ing("정제수" + i, "Water " + i);
+        tail[10] = ing("젖산", "Lactic Acid");
+        assertThat(withReportCaution(null, "고함량 각질제거 산", tail).avoid()).isFalse();
+        tail[10] = ing("에탄올", "Alcohol");
+        assertThat(withReportCaution("high_alcohol_denat", "고함량 변성알코올", tail).avoid()).isFalse();
+        // 주의 성분이 없는 리포트 묶음은 아무것도 빼지 않는다
+        assertThat(withReportCaution("something_else", "기타 주의", ing("향료", "Fragrance")).avoid()).isFalse();
     }
 
     @Test
@@ -111,6 +146,7 @@ class MatchScorerTest {
         Result r = scorer.score(List.of(ing("판테놀", "Panthenol"), ing("병풀추출물", "Centella Asiatica Extract")), p);
 
         assertThat(r.allergen()).isTrue();
+        assertThat(r.avoid()).isTrue();
         assertThat(r.score()).isEqualTo(20); // 50 + 30 − 60
         assertThat(r.cautions().getFirst()).isEqualTo("등록한 주의 성분 판테놀 포함");
     }
