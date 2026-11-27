@@ -88,14 +88,18 @@ class ProductIntegrationTest {
         product("노스카", "나인 흔적 앰플", "ESSENCE", 10_000, new String[] {"OILY"}, true);
         product("VT", "100% 리들샷", "ESSENCE", 36_900, new String[] {"COMBINATION"}, true);
         product("숨김", "판매 중지 크림", "CREAM", 5_000, new String[] {"DRY"}, false);
+        product("메디힐", "진정 시트 마스크 10매", "MASK_PACK", 25_000, new String[] {"COMBINATION"}, true);
 
         mvc.perform(get("/api/products").with(login(userId)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items.length()").value(4))
+                .andExpect(jsonPath("$.items.length()").value(5))
                 .andExpect(jsonPath("$.hasNext").value(false));
         mvc.perform(get("/api/products?category=CREAM").with(login(userId)))
                 .andExpect(jsonPath("$.items.length()").value(1))
                 .andExpect(jsonPath("$.items[0].name").value("마데카 크림"));
+        mvc.perform(get("/api/products?category=MASK_PACK").with(login(userId)))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].category").value("MASK_PACK"));
         mvc.perform(get("/api/products?category=CLEANSER,ESSENCE&sort=PRICE_ASC").with(login(userId)))
                 .andExpect(jsonPath("$.items.length()").value(3))
                 .andExpect(jsonPath("$.items[0].price").value(9900))

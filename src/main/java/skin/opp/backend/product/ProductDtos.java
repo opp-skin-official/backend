@@ -7,8 +7,8 @@ public final class ProductDtos {
 
     private ProductDtos() {}
 
-    /** 제품 유형 (Figma 필터: 클렌저·토너·로션·크림·선크림 + 에센스/앰플) */
-    public enum Category { CLEANSER, TONER, LOTION, ESSENCE, CREAM, SUNSCREEN }
+    /** 제품 유형 (Figma 필터: 클렌저·토너·로션·크림·선크림 + 에센스/앰플, 마스크팩=AI 루틴 step_type mask_pack) */
+    public enum Category { CLEANSER, TONER, LOTION, ESSENCE, CREAM, SUNSCREEN, MASK_PACK }
 
     /** 필터 "피부 특성" */
     public enum SkinFit { OILY, DRY, COMBINATION, SENSITIVE }
